@@ -142,6 +142,8 @@ The project folder needs to be a Git repository before using Git push. If `git s
 
 Image OCR uses Tesseract.js locally in the browser with the English language model copied into the frontend's static assets during dev/build; uploaded images are not sent to an OCR provider. No OCR API key or separate Tesseract installation is required, and the model is served by the site rather than a third-party CDN.
 
+The Add Book extractor reads labeled bibliographic details from OCR text and preserves fields it cannot detect. Accession numbers and library-specific copy details (such as acquisition source, price, and condition) are not inferred from a title-page image.
+
 `AI_API_KEY` is optional and only controls AI cataloguing suggestions. Without it, the app uses its built-in local suggestions.
 
 ## Troubleshooting

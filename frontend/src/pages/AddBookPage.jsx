@@ -95,12 +95,19 @@ export default function AddBookPage() {
       }
 
       const fields = extractMetadataFromText(rawText);
-      setForm((current) => ({
-        ...current,
-        ...fields,
-        rawText,
-        subjects: fields.subjects.length ? fields.subjects.join(', ') : current.subjects,
-      }));
+      setForm((current) => {
+        const extracted = Object.fromEntries(
+          Object.entries(fields).filter(([, value]) => (
+            Array.isArray(value) ? value.length > 0 : Boolean(value)
+          )),
+        );
+        return {
+          ...current,
+          ...extracted,
+          rawText,
+          subjects: fields.subjects.length ? fields.subjects.join(', ') : current.subjects,
+        };
+      });
       setSuccess('Text extracted in your browser. Review the detected details before saving.');
     } catch (err) {
       setError(err.message || 'Unable to extract text.');
@@ -175,7 +182,7 @@ export default function AddBookPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Add Book</h1>
-        <p className="text-sm text-slate-600">Upload a title page, review OCR or AI suggestions, and save the record with a manually assigned accession number.</p>
+        <p className="text-sm text-slate-600">Upload a title page to fill in the details that can be read from it. The accession number and library-specific details must be entered separately.</p>
       </div>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
@@ -198,7 +205,7 @@ export default function AddBookPage() {
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">OCR text</label>
             <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Extracted text will appear here. You can also enter text manually." />
-            <p className="mt-2 text-xs text-slate-500">Image OCR runs locally in your browser using the English language model.</p>
+            <p className="mt-2 text-xs text-slate-500">Image OCR runs locally in your browser using the English language model. Details not present in the image are left unchanged rather than guessed.</p>
           </div>
           <div className="mt-4 flex gap-2">
             <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>{ocrProgress ? `Reading image… ${ocrProgress.progress}%` : 'Extract metadata'}</button>
