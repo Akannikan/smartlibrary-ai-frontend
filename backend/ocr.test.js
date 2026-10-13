@@ -44,6 +44,7 @@ test('recognizes a clear title page using the bundled English Tesseract model', 
   assert.match(result.text, /THE QUIET LIBRARY/i);
   assert.match(result.text, /JANE DOE/i);
   assert.ok(result.confidence >= 45);
+  assert.ok(result.wordCount >= 4, JSON.stringify(result));
 });
 
 test('recognizes a decorative cover with separate title and author lines', async (context) => {
@@ -64,6 +65,7 @@ test('recognizes a decorative cover with separate title and author lines', async
   assert.match(result.text, /CONN IGGULDEN/i);
   assert.match(result.text, /HAL IGGULDEN/i);
   assert.ok(result.confidence >= 45);
+  assert.ok(result.wordCount >= 4, JSON.stringify(result));
 });
 
 test('queues concurrent OCR jobs on the shared worker', async (context) => {

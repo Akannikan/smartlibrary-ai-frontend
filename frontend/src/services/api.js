@@ -1,9 +1,14 @@
 import { parseApiResponse } from './apiResponse';
 
 const API_BASE_URL = import.meta.env.DEV ? import.meta.env.VITE_API_URL || '' : '';
+const OCR_API_BASE_URL = (
+  import.meta.env.VITE_OCR_API_URL
+  || (import.meta.env.DEV ? '' : 'https://smartlibrary-ai-frontend-1.onrender.com')
+).replace(/\/$/, '');
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const requestUrl = /^https?:\/\//i.test(path) ? path : `${API_BASE_URL}${path}`;
+  const response = await fetch(requestUrl, {
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
@@ -24,7 +29,10 @@ export const api = {
   getCopies: () => apiRequest('/api/copies'),
   addCopy: (bookId, data) => apiRequest(`/api/books/${bookId}/copies`, { method: 'POST', body: JSON.stringify(data) }),
   updateCopy: (copyId, data) => apiRequest(`/api/copies/${copyId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  extractText: (data) => apiRequest('/api/cataloguing/extract', { method: 'POST', body: JSON.stringify(data) }),
+  extractText: (data) => apiRequest(
+    `${OCR_API_BASE_URL}/api/cataloguing/extract`,
+    { method: 'POST', body: JSON.stringify(data) },
+  ),
   suggestCataloguing: (data) => apiRequest('/api/cataloguing/suggest', { method: 'POST', body: JSON.stringify(data) }),
   approveRecord: (data) => apiRequest('/api/cataloguing/approve', { method: 'POST', body: JSON.stringify(data) }),
   getAccessionRegister: () => apiRequest('/api/accession-register'),

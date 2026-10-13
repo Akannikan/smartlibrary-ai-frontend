@@ -11,6 +11,7 @@ const { query, ensureSchema } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MIN_OCR_CONFIDENCE = 45;
+const MIN_OCR_WORD_COUNT = 4;
 app.set('trust proxy', 1);
 const imageOcrRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -538,6 +539,7 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
   const payload = req.body || {};
   let suppliedText = sanitizeText(payload.rawText || '');
   let ocrConfidence;
+  let ocrWordCount;
 
   if (payload.image !== undefined) {
     if (typeof payload.image !== 'string') {
@@ -552,6 +554,7 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
       const recognition = await recognizeImage(payload.image);
       suppliedText = [suppliedText, recognition.text].filter(Boolean).join('\n');
       ocrConfidence = recognition.confidence;
+      ocrWordCount = recognition.wordCount;
     } catch (error) {
       if (error.status) {
         return res.status(error.status).json({ success: false, message: error.message, fields: {} });
@@ -577,14 +580,18 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: payload.image && ocrConfidence < MIN_OCR_CONFIDENCE
+    message: payload.image && (
+      ocrConfidence < MIN_OCR_CONFIDENCE || ocrWordCount < MIN_OCR_WORD_COUNT
+    )
       ? 'Some text was read, but the image is too unclear for reliable automatic fields. Try a clear title page or enter the details manually.'
       : payload.image
         ? 'Text extracted with the built-in English OCR engine. Review the detected details before saving.'
         : 'Text extracted. Review the detected details before saving.',
     extractedText: suppliedText,
-    ...(payload.image ? { ocrConfidence } : {}),
-    fields: payload.image && ocrConfidence < MIN_OCR_CONFIDENCE && !sanitizeText(payload.rawText)
+    ...(payload.image ? { ocrConfidence, ocrWordCount } : {}),
+    fields: payload.image
+      && (ocrConfidence < MIN_OCR_CONFIDENCE || ocrWordCount < MIN_OCR_WORD_COUNT)
+      && !sanitizeText(payload.rawText)
       ? {}
       : extractMetadataFromText(suppliedText),
   });

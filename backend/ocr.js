@@ -81,6 +81,7 @@ async function runRecognition(image) {
   const worker = await getOCRWorker();
   const passes = [
     { image: greyImage, mode: PSM.AUTO },
+    { image: greyImage, mode: PSM.SINGLE_BLOCK },
     { image: greyImage, mode: PSM.SPARSE_TEXT },
     { image: greenImage, mode: PSM.SPARSE_TEXT },
   ];
@@ -90,27 +91,34 @@ async function runRecognition(image) {
     await worker.setParameters({ tessedit_pageseg_mode: pass.mode });
     const result = await worker.recognize(pass.image);
     const text = result.data.text.trim();
-    const words = result.data.words || [];
-    const alphabeticWords = words.filter((word) => /[a-z]/i.test(word.text));
-    const readableWordRatio = alphabeticWords.length
-      ? alphabeticWords.filter((word) => /^[a-z][a-z'’-]+$/i.test(word.text)).length / alphabeticWords.length
+    const words = text.match(/[a-z]+(?:['’-][a-z]+)*/gi) || [];
+    const readableWordRatio = words.length
+      ? words.filter((word) => /^[a-z][a-z'’-]+$/i.test(word)).length / words.length
       : 0;
-    const shortWordRatio = alphabeticWords.length
-      ? alphabeticWords.filter((word) => word.text.length <= 2).length / alphabeticWords.length
+    const shortWordRatio = words.length
+      ? words.filter((word) => word.length <= 2).length / words.length
       : 1;
     const confidence = Number.isFinite(result.data.confidence) ? result.data.confidence : 0;
 
     candidates.push({
       text,
       confidence,
-      score: confidence * 0.65 + readableWordRatio * 20 - shortWordRatio * 15,
+      wordCount: words.length,
+      score: confidence * 0.5
+        + readableWordRatio * 20
+        + Math.min(words.length, 12) * 4
+        - shortWordRatio * 15,
     });
   }
 
   const best = candidates.reduce((selected, candidate) => (
     candidate.score > selected.score ? candidate : selected
   ));
-  return { text: best.text, confidence: Math.round(best.confidence) };
+  return {
+    text: best.text,
+    confidence: Math.round(best.confidence),
+    wordCount: best.wordCount,
+  };
 }
 
 function recognizeImage(dataUrl) {

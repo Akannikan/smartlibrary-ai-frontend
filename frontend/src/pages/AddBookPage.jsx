@@ -5,6 +5,7 @@ import { extractMetadataFromText } from '../services/cataloguing';
 const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
 const MAX_OCR_REQUEST_IMAGE_BYTES = 3 * 1024 * 1024;
 const MIN_OCR_CONFIDENCE = 45;
+const MIN_OCR_WORD_COUNT = 4;
 
 function loadImage(file) {
   return new Promise((resolve, reject) => {
@@ -154,6 +155,7 @@ export default function AddBookPage() {
         : rawTextBeforeExtraction;
       let rawText = rawTextBeforeExtraction;
       let ocrConfidence;
+      let ocrWordCount;
 
       if (imageFile) {
         if (imageFile.size > MAX_OCR_IMAGE_BYTES) {
@@ -166,6 +168,7 @@ export default function AddBookPage() {
         const result = await api.extractText({ image, rawText: manualText });
         rawText = result.extractedText || '';
         ocrConfidence = result.ocrConfidence;
+        ocrWordCount = result.ocrWordCount;
         setLastOCRText(rawText);
       }
 
@@ -173,11 +176,13 @@ export default function AddBookPage() {
         throw new Error('No text was detected. Try a clearer image or enter the details manually.');
       }
 
-      const fields = imageFile && !manualText && !(Number(ocrConfidence) >= MIN_OCR_CONFIDENCE)
+      const reliableOCR = Number(ocrConfidence) >= MIN_OCR_CONFIDENCE
+        && Number(ocrWordCount) >= MIN_OCR_WORD_COUNT;
+      const fields = imageFile && !manualText && !reliableOCR
         ? {}
         : extractMetadataFromText(rawText);
       const recognizedFields = imageFile && !manualText
-        && Number(ocrConfidence) >= MIN_OCR_CONFIDENCE
+        && reliableOCR
         ? fields
         : {};
       setLastOCRFields(recognizedFields);
@@ -195,7 +200,7 @@ export default function AddBookPage() {
         };
       });
       setSuccess(
-        imageFile && !manualText && !(Number(ocrConfidence) >= MIN_OCR_CONFIDENCE)
+        imageFile && !manualText && !reliableOCR
           ? 'Text was detected, but it was not clear enough to fill the fields reliably. Try a straight, well-lit photo of the inside title page. SmartLibrary does not store uploaded images.'
           : imageFile
             ? 'Image processed by the built-in English OCR engine. SmartLibrary does not store uploaded images. Review the detected details before saving.'
