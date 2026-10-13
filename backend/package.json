@@ -4,6 +4,7 @@
   "description": "Express backend for smartLibrary Ai MVP",
   "main": "server.js",
   "scripts": {
+    "test": "node --test",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },

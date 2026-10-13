@@ -140,7 +140,7 @@ The project folder needs to be a Git repository before using Git push. If `git s
 
 ## AI / OCR providers
 
-Image OCR runs on the hosted Express backend using its bundled Tesseract.js English model. PNG, JPEG, and WebP images up to 8 MB are sent to the backend for processing, are not written to disk or stored in the database, and are not sent to a third-party OCR provider. No OCR API key or separate Tesseract installation is required.
+Image OCR runs on the hosted Express backend using its bundled Tesseract.js English model. PNG, JPEG, and WebP images up to 8 MB are sent to the backend, automatically rotated and enhanced before OCR, and are not written to disk or stored in the database or sent to a third-party OCR provider. No OCR API key or separate Tesseract installation is required.
 
 The Add Book extractor reads labeled bibliographic details from OCR text and preserves fields it cannot detect. Accession numbers and library-specific copy details (such as acquisition source, price, and condition) are not inferred from a title-page image.
 

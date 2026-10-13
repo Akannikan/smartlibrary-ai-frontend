@@ -76,4 +76,10 @@ async function recognizeImage(dataUrl) {
   return result.data.text.trim();
 }
 
-module.exports = { recognizeImage };
+async function terminateOCRWorker() {
+  const worker = await workerPromise?.catch(() => null);
+  workerPromise = null;
+  if (worker) await worker.terminate();
+}
+
+module.exports = { recognizeImage, terminateOCRWorker };
