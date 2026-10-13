@@ -519,30 +519,19 @@ app.patch('/api/copies/:id', async (req, res) => {
 });
 
 app.post('/api/cataloguing/extract', async (req, res) => {
-  const { rawText, imageDataUrl } = req.body || {};
-  const suppliedText = sanitizeText(rawText || imageDataUrl || '');
+  const suppliedText = sanitizeText((req.body || {}).rawText || '');
 
   if (!suppliedText) {
     return res.status(400).json({
       success: false,
-      message: 'No OCR text or image data was provided. Please enter details manually.',
+      message: 'No OCR text was provided. Extract text from an image or enter details manually.',
       fields: {},
-    });
-  }
-
-  const configured = Boolean(process.env.OCR_API_KEY || process.env.AI_API_KEY);
-  if (!configured) {
-    return res.status(200).json({
-      success: false,
-      message: 'OCR is not configured in this environment. Please review and manually complete the bibliographic details.',
-      extractedText: suppliedText,
-      fields: extractMetadataFromText(suppliedText),
     });
   }
 
   return res.status(200).json({
     success: true,
-    message: 'OCR processing completed.',
+    message: 'Text extracted locally. Review the detected details before saving.',
     extractedText: suppliedText,
     fields: extractMetadataFromText(suppliedText),
   });

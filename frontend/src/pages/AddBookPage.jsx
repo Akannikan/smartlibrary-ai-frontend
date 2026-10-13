@@ -1,4 +1,8 @@
 import { useState } from 'react';
+import { createWorker, OEM } from 'tesseract.js';
+import workerPath from 'tesseract.js/dist/worker.min.js?url';
+import corePath from 'tesseract.js-core/tesseract-core-lstm.wasm.js?url';
+import englishModelPath from '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz?url';
 import api from '../services/api';
 
 const emptyForm = {
@@ -30,9 +34,11 @@ const emptyForm = {
 export default function AddBookPage() {
   const [form, setForm] = useState(emptyForm);
   const [imagePreview, setImagePreview] = useState('');
+  const [imageFile, setImageFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [ocrProgress, setOcrProgress] = useState(null);
   const [suggestions, setSuggestions] = useState(null);
 
   const updateField = (field) => (event) => {
@@ -42,6 +48,9 @@ export default function AddBookPage() {
   const handleImageUpload = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    setImageFile(file);
+    setError('');
+    setSuccess('');
     const reader = new FileReader();
     reader.onload = () => setImagePreview(reader.result);
     reader.readAsDataURL(file);
@@ -49,16 +58,44 @@ export default function AddBookPage() {
 
   const handleRemoveImage = () => {
     setImagePreview('');
+    setImageFile(null);
   };
 
   const handleExtract = async () => {
+    if (!imageFile && !form.rawText.trim()) {
+      setError('Upload an image or enter OCR text before extracting metadata.');
+      return;
+    }
+
     setLoading(true);
     setError('');
+    setSuccess('');
+    setOcrProgress(null);
+    let worker;
+
     try {
-      const result = await api.extractText({
-        rawText: form.rawText,
-        imageDataUrl: imagePreview,
-      });
+      let rawText = form.rawText.trim();
+
+      if (imageFile) {
+        worker = await createWorker('eng', OEM.LSTM_ONLY, {
+          workerPath,
+          corePath,
+          langPath: englishModelPath.slice(0, englishModelPath.lastIndexOf('/')),
+          gzip: true,
+          logger: ({ status, progress }) => {
+            setOcrProgress({ status, progress: Math.round(progress * 100) });
+          },
+        });
+        const { data } = await worker.recognize(imageFile);
+        rawText = [rawText, data.text.trim()].filter(Boolean).join('\n');
+      }
+
+      if (!rawText) {
+        throw new Error('No text was detected. Try a clearer image or enter the details manually.');
+      }
+
+      setForm((current) => ({ ...current, rawText }));
+      const result = await api.extractText({ rawText });
 
       if (result.fields) {
         setForm((current) => ({
@@ -74,6 +111,8 @@ export default function AddBookPage() {
     } catch (err) {
       setError(err.message || 'Unable to extract text.');
     } finally {
+      if (worker) await worker.terminate();
+      setOcrProgress(null);
       setLoading(false);
     }
   };
@@ -164,12 +203,14 @@ export default function AddBookPage() {
           </div>
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">OCR text</label>
-            <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Paste extracted text here or add text from OCR if configured." />
+            <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Extracted text will appear here. You can also enter text manually." />
+            <p className="mt-2 text-xs text-slate-500">Image OCR runs locally in your browser using the English language model.</p>
           </div>
           <div className="mt-4 flex gap-2">
-            <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>Extract metadata</button>
+            <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>{ocrProgress ? `Reading image… ${ocrProgress.progress}%` : 'Extract metadata'}</button>
             <button onClick={handleSuggest} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-stone-100" disabled={loading}>Suggest</button>
           </div>
+          {ocrProgress ? <p className="mt-2 text-sm text-slate-500" role="status">{ocrProgress.status}</p> : null}
         </div>
 
         <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
