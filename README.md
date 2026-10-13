@@ -121,7 +121,7 @@ git push -u origin main
 - The Blueprint uses Render's free plan; the service may sleep after inactivity and take a short time to wake.
 - Build command: `npm install`
 - Start command: `npm start`
-- Set `DATABASE_URL` to the Neon connection string in Render's private environment settings. The Blueprint configures `FRONTEND_URL` for the Vercel production origin. Add `AI_API_KEY` only if using an external AI suggestions provider; image OCR is local and needs no key.
+- Set `DATABASE_URL` to the Neon connection string in Render's private environment settings. The Blueprint configures `FRONTEND_URL` for the Vercel production origin. Add `AI_API_KEY` only if using an external AI suggestions provider. Hosted OCR uses the backend's bundled Tesseract model and needs no OCR API key.
 - The Render health check uses `/api/health`. The service fails startup if `DATABASE_URL` is missing or the migration cannot be applied.
 
 ## CORS and API configuration
@@ -140,7 +140,7 @@ The project folder needs to be a Git repository before using Git push. If `git s
 
 ## AI / OCR providers
 
-Image OCR uses Tesseract.js locally in the browser with the English language model copied into the frontend's static assets during dev/build; uploaded images are not sent to an OCR provider. No OCR API key or separate Tesseract installation is required, and the model is served by the site rather than a third-party CDN.
+Image OCR runs on the hosted Express backend using its bundled Tesseract.js English model. PNG, JPEG, and WebP images up to 8 MB are sent to the backend for processing, are not written to disk or stored in the database, and are not sent to a third-party OCR provider. No OCR API key or separate Tesseract installation is required.
 
 The Add Book extractor reads labeled bibliographic details from OCR text and preserves fields it cannot detect. Accession numbers and library-specific copy details (such as acquisition source, price, and condition) are not inferred from a title-page image.
 

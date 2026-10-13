@@ -4,10 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const XLSX = require('xlsx');
+const { createWorker, OEM } = require('tesseract.js');
+const englishModel = require('@tesseract.js-data/eng');
 const { query, ensureSchema } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const MAX_OCR_IMAGE_BYTES = 8 * 1024 * 1024;
+let ocrWorkerPromise;
 
 const allowedOrigins = [
   'http://localhost:5173',
@@ -29,7 +33,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 function buildResponse(success, payload = {}, status = 200) {
@@ -51,6 +55,44 @@ function normalizeArray(value) {
 function sanitizeText(value) {
   if (value === null || value === undefined) return '';
   return String(value).trim();
+}
+
+function getOCRWorker() {
+  if (!ocrWorkerPromise) {
+    ocrWorkerPromise = createWorker('eng', OEM.LSTM_ONLY, {
+      langPath: englishModel.langPath,
+      gzip: englishModel.gzip,
+    }).catch((error) => {
+      ocrWorkerPromise = null;
+      throw error;
+    });
+  }
+  return ocrWorkerPromise;
+}
+
+function decodeOCRImage(dataUrl) {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i.exec(dataUrl);
+  if (!match) {
+    throw Object.assign(new Error('Upload a valid PNG, JPEG, or WebP image.'), { status: 400 });
+  }
+
+  const image = Buffer.from(match[2], 'base64');
+  if (!image.length || image.length > MAX_OCR_IMAGE_BYTES) {
+    throw Object.assign(new Error('The image must be larger than 0 bytes and no more than 8 MB.'), { status: 413 });
+  }
+
+  const mimeType = match[1].toLowerCase();
+  const hasValidSignature = mimeType === 'image/png'
+    ? image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    : mimeType === 'image/jpeg'
+      ? image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff
+      : image.subarray(0, 4).toString() === 'RIFF' && image.subarray(8, 12).toString() === 'WEBP';
+
+  if (!hasValidSignature) {
+    throw Object.assign(new Error('The uploaded image format does not match its file type.'), { status: 400 });
+  }
+
+  return image;
 }
 
 function extractMetadataFromText(rawText = '') {
@@ -519,7 +561,35 @@ app.patch('/api/copies/:id', async (req, res) => {
 });
 
 app.post('/api/cataloguing/extract', async (req, res) => {
-  const suppliedText = sanitizeText((req.body || {}).rawText || '');
+  const payload = req.body || {};
+  let suppliedText = sanitizeText(payload.rawText || '');
+
+  if (payload.image !== undefined) {
+    if (typeof payload.image !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'The uploaded image must be provided as a base64 data URL.',
+        fields: {},
+      });
+    }
+
+    try {
+      const image = decodeOCRImage(payload.image);
+      const worker = await getOCRWorker();
+      const result = await worker.recognize(image);
+      suppliedText = [suppliedText, result.data.text.trim()].filter(Boolean).join('\n');
+    } catch (error) {
+      if (error.status) {
+        return res.status(error.status).json({ success: false, message: error.message, fields: {} });
+      }
+      console.error('Hosted OCR failed:', error);
+      return res.status(503).json({
+        success: false,
+        message: 'Hosted OCR is temporarily unavailable. Please try again or enter the text manually.',
+        fields: {},
+      });
+    }
+  }
 
   if (!suppliedText) {
     return res.status(400).json({
@@ -531,7 +601,7 @@ app.post('/api/cataloguing/extract', async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: 'Text extracted locally. Review the detected details before saving.',
+    message: payload.image ? 'Text extracted on the hosted server.' : 'Text extracted. Review the detected details before saving.',
     extractedText: suppliedText,
     fields: extractMetadataFromText(suppliedText),
   });

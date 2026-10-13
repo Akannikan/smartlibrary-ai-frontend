@@ -4,9 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-tesseract-model.js",
     "dev": "vite",
-    "prebuild": "node scripts/copy-tesseract-model.js",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test"
