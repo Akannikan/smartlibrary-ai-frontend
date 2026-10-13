@@ -112,8 +112,7 @@ git push -u origin main
 - Set the root directory to `frontend`.
 - Build command: `npm run build`
 - Output directory: `dist`
-- Add `VITE_API_URL` as an environment variable for Production (and Preview if needed), with the Render backend base URL, for example `https://smartlibrary-ai-api.onrender.com` (no trailing slash).
-- The `frontend/vercel.json` rewrite supports React Router page refreshes and direct links.
+- `frontend/vercel.json` proxies `/api/*` requests to the Render service and rewrites frontend routes to `index.html`. No production `VITE_API_URL` is required.
 
 ## Deploy to Render
 
@@ -121,19 +120,19 @@ git push -u origin main
 - Set the root directory to `backend`.
 - Build command: `npm install`
 - Start command: `npm start`
-- Set `DATABASE_URL` to the Neon connection string, `FRONTEND_URL` to the exact Vercel production origin (for example `https://smartlibrary-ai.vercel.app`), and optional `FRONTEND_URLS` to comma-separated Vercel preview origins when needed. Add AI/OCR keys only when using those providers.
+- Set `DATABASE_URL` to the Neon connection string in Render's private environment settings. The Blueprint configures `FRONTEND_URL` for the Vercel production origin. Add `AI_API_KEY` only if using an external AI suggestions provider; image OCR is local and needs no key.
 - The Render health check uses `/api/health`. The service fails startup if `DATABASE_URL` is missing or the migration cannot be applied.
 
 ## CORS and API configuration
 
-The backend accepts requests from `http://localhost:5173`, `FRONTEND_URL`, and any comma-separated origins in `FRONTEND_URLS`. Set the frontend's `VITE_API_URL` to the Render service base URL. Since Vite embeds this variable at build time, redeploy the frontend after changing it.
+In local development, Vite proxies `/api/*` to `http://localhost:5000`. In production, Vercel proxies those requests to `https://smartlibrary-ai-api.onrender.com`; the backend allows the Vercel production origin.
 
 ## Publish and connect the services
 
 1. Create a GitHub repository, then from the project root push the files to it. Do not add `.env` files; only the `.env.example` templates belong in Git.
-2. Import that repository into Render and configure the backend environment values above. Wait for the deployment and confirm `https://<render-service>.onrender.com/api/health` returns `"database": "connected"`.
-3. Import the same repository into Vercel with `frontend` as its root directory. Configure `VITE_API_URL` with the exact Render service base URL and deploy.
-4. Copy the Vercel production domain into Render's `FRONTEND_URL`, save, and redeploy the backend if the environment was added after its first deployment.
+2. Create a Render Blueprint from the repository. Enter the Neon connection string as the private `DATABASE_URL` value when prompted. Wait for the deployment and confirm `https://smartlibrary-ai-api.onrender.com/api/health` returns `"database": "connected"`.
+3. Import the same repository into Vercel with `frontend` as its root directory and deploy. The API rewrite is already configured for the Render service URL.
+4. If Render assigned a different service URL, update the `/api/:path*` destination in `frontend/vercel.json` to that URL and redeploy the frontend.
 5. Open the Vercel site and test creating a book with a manually entered accession number. Confirm it appears in the catalogue and accession register. Never use or expose a generated number as the accession number.
 
 The project folder needs to be a Git repository before using Git push. If `git status` says it is not a Git repository, initialize it with `git init` before adding the GitHub remote.
