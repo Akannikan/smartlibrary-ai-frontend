@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { createWorker, OEM } from 'tesseract.js';
 import workerPath from 'tesseract.js/dist/worker.min.js?url';
 import corePath from 'tesseract.js-core/tesseract-core-lstm.wasm.js?url';
-import englishModelPath from '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz?url';
 import api from '../services/api';
 import { extractMetadataFromText } from '../services/cataloguing';
 
@@ -81,7 +80,7 @@ export default function AddBookPage() {
         worker = await createWorker('eng', OEM.LSTM_ONLY, {
           workerPath,
           corePath,
-          langPath: englishModelPath.slice(0, englishModelPath.lastIndexOf('/')),
+          langPath: `${import.meta.env.BASE_URL}tesseract-data`,
           gzip: true,
           logger: ({ status, progress }) => {
             setOcrProgress({ status, progress: Math.round(progress * 100) });

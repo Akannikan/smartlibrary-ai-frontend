@@ -2,5 +2,6 @@ node_modules/
 .env
 backend/.env
 dist/
+frontend/public/tesseract-data/eng.traineddata.gz
 *.log
 .DS_Store

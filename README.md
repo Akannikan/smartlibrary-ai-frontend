@@ -140,7 +140,7 @@ The project folder needs to be a Git repository before using Git push. If `git s
 
 ## AI / OCR providers
 
-Image OCR uses Tesseract.js locally in the browser with the bundled English language model; uploaded images are not sent to an OCR provider. No OCR API key or separate Tesseract installation is required. OCR model and worker assets are served with the frontend, so the first model load does not require a third-party CDN.
+Image OCR uses Tesseract.js locally in the browser with the English language model copied into the frontend's static assets during dev/build; uploaded images are not sent to an OCR provider. No OCR API key or separate Tesseract installation is required, and the model is served by the site rather than a third-party CDN.
 
 `AI_API_KEY` is optional and only controls AI cataloguing suggestions. Without it, the app uses its built-in local suggestions.
 
