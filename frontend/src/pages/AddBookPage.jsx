@@ -4,6 +4,7 @@ import workerPath from 'tesseract.js/dist/worker.min.js?url';
 import corePath from 'tesseract.js-core/tesseract-core-lstm.wasm.js?url';
 import englishModelPath from '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz?url';
 import api from '../services/api';
+import { extractMetadataFromText } from '../services/cataloguing';
 
 const emptyForm = {
   title: '',
@@ -94,20 +95,14 @@ export default function AddBookPage() {
         throw new Error('No text was detected. Try a clearer image or enter the details manually.');
       }
 
-      setForm((current) => ({ ...current, rawText }));
-      const result = await api.extractText({ rawText });
-
-      if (result.fields) {
-        setForm((current) => ({
-          ...current,
-          ...result.fields,
-          subjects: Array.isArray(result.fields.subjects) ? result.fields.subjects.join(', ') : current.subjects,
-        }));
-      }
-
-      if (result.message) {
-        setSuccess(result.message);
-      }
+      const fields = extractMetadataFromText(rawText);
+      setForm((current) => ({
+        ...current,
+        ...fields,
+        rawText,
+        subjects: fields.subjects.length ? fields.subjects.join(', ') : current.subjects,
+      }));
+      setSuccess('Text extracted in your browser. Review the detected details before saving.');
     } catch (err) {
       setError(err.message || 'Unable to extract text.');
     } finally {
