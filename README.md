@@ -126,12 +126,12 @@ git push -u origin main
 
 ## CORS and API configuration
 
-In local development, Vite proxies `/api/*` to `http://localhost:5000`. In production, Vercel proxies those requests to `https://smartlibrary-ai-api.onrender.com`; the backend allows the Vercel production origin.
+In local development, Vite proxies `/api/*` to `http://localhost:5000`. In production, Vercel proxies those requests to `https://smartlibrary-ai-frontend-1.onrender.com`.
 
 ## Publish and connect the services
 
 1. Create a GitHub repository, then from the project root push the files to it. Do not add `.env` files; only the `.env.example` templates belong in Git.
-2. Create a Render Blueprint from the repository. Enter the Neon connection string as the private `DATABASE_URL` value when prompted. Wait for the deployment and confirm `https://smartlibrary-ai-api.onrender.com/api/health` returns `"database": "connected"`.
+2. Deploy the backend from the Render Blueprint or create a Web Service with `backend` as its root directory. Set `DATABASE_URL` privately in Render and confirm `https://smartlibrary-ai-frontend-1.onrender.com/api/health` returns `"database": "connected"`.
 3. Import the same repository into Vercel with `frontend` as its root directory and deploy. The API rewrite is already configured for the Render service URL.
 4. If Render assigned a different service URL, update the `/api/:path*` destination in `frontend/vercel.json` to that URL and redeploy the frontend.
 5. Open the Vercel site and test creating a book with a manually entered accession number. Confirm it appears in the catalogue and accession register. Never use or expose a generated number as the accession number.
