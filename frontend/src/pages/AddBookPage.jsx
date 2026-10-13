@@ -237,6 +237,7 @@ export default function AddBookPage() {
           const lookup = await api.lookupBook({
             title: fields.title,
             author: fields.author,
+            isbn: fields.isbn,
           });
           setLookupMessage(lookup.message || '');
           setLookupCandidates(lookup.candidates || []);
@@ -325,7 +326,7 @@ export default function AddBookPage() {
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">OCR text</label>
             <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Extracted text will appear here. You can also enter text manually." />
-            <p className="mt-2 text-xs text-slate-500">Images up to 7 MB are processed by the built-in English OCR engine; the image is not stored or sent to the public catalogue. After reading the title/author, SmartLibrary searches Open Library using only that text for subjects and classification. Suggested DDC/call numbers need librarian review. No paid AI key is required.</p>
+            <p className="mt-2 text-xs text-slate-500">Images up to 7 MB are processed by the built-in English OCR engine; the image is not stored or sent to the public catalogue. SmartLibrary searches Open Library using detected ISBN, title, and author text, with separate searches if needed. Catalogue coverage varies, so review suggestions and enter details not found. No paid AI key is required.</p>
           </div>
           <div className="mt-4 flex gap-2">
             <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>{ocrProgress ? `${ocrProgress}…` : 'Extract metadata'}</button>

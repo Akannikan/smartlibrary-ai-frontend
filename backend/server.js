@@ -612,16 +612,17 @@ app.post('/api/cataloguing/lookup', bookLookupRateLimit, async (req, res) => {
   const payload = req.body || {};
   const title = sanitizeText(payload.title || '').slice(0, 160);
   const author = sanitizeText(payload.author || '').slice(0, 120);
+  const isbn = sanitizeText(payload.isbn || '').slice(0, 24);
 
-  if (!title && !author) {
+  if (!title && !author && !isbn) {
     return res.status(400).json({
       success: false,
-      message: 'A title or author is required to search the public book catalogue.',
+      message: 'A title, author, or ISBN is required to search the public book catalogue.',
     });
   }
 
   try {
-    const result = await searchBooks({ title, author });
+    const result = await searchBooks({ title, author, isbn });
     return res.status(200).json({
       success: true,
       ...result,
