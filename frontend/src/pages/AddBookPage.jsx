@@ -76,17 +76,17 @@ export default function AddBookPage() {
 
       if (imageFile) {
         if (imageFile.size > MAX_OCR_IMAGE_BYTES) {
-          throw new Error('The image must be 7 MB or smaller for Google Cloud Vision OCR.');
+          throw new Error('The image must be 7 MB or smaller for OCR.');
         }
 
-        setOcrProgress('Sending image securely to Google Cloud Vision');
+        setOcrProgress('Sending image to the library server');
         const image = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
           reader.onerror = () => reject(new Error('Unable to read the selected image.'));
           reader.readAsDataURL(imageFile);
         });
-        setOcrProgress('Recognizing text with document OCR');
+        setOcrProgress('Reading text with the built-in OCR engine');
         const result = await api.extractText({ image, rawText });
         rawText = result.extractedText || '';
       }
@@ -111,7 +111,7 @@ export default function AddBookPage() {
       });
       setSuccess(
         imageFile
-          ? 'Image processed by Google Cloud Vision. SmartLibrary does not save uploaded images; Google Cloud processes them to provide OCR. Review the detected details before saving.'
+          ? 'Image processed by the built-in English OCR engine. SmartLibrary does not store uploaded images. Review the detected details before saving.'
           : 'Text extracted. Review the detected details before saving.',
       );
     } catch (err) {
@@ -209,7 +209,7 @@ export default function AddBookPage() {
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">OCR text</label>
             <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Extracted text will appear here. You can also enter text manually." />
-            <p className="mt-2 text-xs text-slate-500">Images up to 7 MB are sent securely to Google Cloud Vision for document OCR. SmartLibrary does not save uploaded images; Google processes them to provide OCR. Details not visible in the image are left unchanged rather than guessed.</p>
+            <p className="mt-2 text-xs text-slate-500">Images up to 7 MB are processed by the built-in English OCR engine on the library server. No external OCR account or API key is needed; images are not stored. Details not visible in the image are left unchanged rather than guessed.</p>
           </div>
           <div className="mt-4 flex gap-2">
             <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>{ocrProgress ? `${ocrProgress}…` : 'Extract metadata'}</button>

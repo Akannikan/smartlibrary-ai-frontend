@@ -553,10 +553,10 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
       if (error.status) {
         return res.status(error.status).json({ success: false, message: error.message, fields: {} });
       }
-      console.error('Hosted OCR failed:', error);
+      console.error('Image OCR failed:', error);
       return res.status(503).json({
         success: false,
-        message: 'Hosted OCR is temporarily unavailable. Please try again or enter the text manually.',
+        message: 'The built-in OCR engine is temporarily unavailable. Please try again or enter the text manually.',
         fields: {},
       });
     }
@@ -574,7 +574,7 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: payload.image ? 'Text extracted on the hosted server.' : 'Text extracted. Review the detected details before saving.',
+    message: payload.image ? 'Text extracted with the built-in English OCR engine.' : 'Text extracted. Review the detected details before saving.',
     extractedText: suppliedText,
     fields: extractMetadataFromText(suppliedText),
   });
