@@ -3,12 +3,25 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
+const { rateLimit } = require('express-rate-limit');
 const XLSX = require('xlsx');
 const { recognizeImage } = require('./ocr');
 const { query, ensureSchema } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+app.set('trust proxy', 1);
+const imageOcrRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: (req) => req.body?.image === undefined,
+  message: {
+    success: false,
+    message: 'OCR usage limit reached. Please wait 15 minutes before trying again.',
+  },
+});
 
 const allowedOrigins = [
   'http://localhost:5173',
@@ -520,7 +533,7 @@ app.patch('/api/copies/:id', async (req, res) => {
   res.status(response.status).json(response);
 });
 
-app.post('/api/cataloguing/extract', async (req, res) => {
+app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
   const payload = req.body || {};
   let suppliedText = sanitizeText(payload.rawText || '');
 

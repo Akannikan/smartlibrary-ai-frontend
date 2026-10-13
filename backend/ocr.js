@@ -1,20 +1,19 @@
-const sharp = require('sharp');
-const { createWorker, OEM } = require('tesseract.js');
-const englishModel = require('@tesseract.js-data/eng');
+const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
+const VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
 
-const MAX_OCR_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_OCR_IMAGE_PIXELS = 40_000_000;
-let workerPromise;
+function invalidImage(message, status = 400) {
+  return Object.assign(new Error(message), { status });
+}
 
 function decodeImage(dataUrl) {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i.exec(dataUrl);
   if (!match) {
-    throw Object.assign(new Error('Upload a valid PNG, JPEG, or WebP image.'), { status: 400 });
+    throw invalidImage('Upload a valid PNG, JPEG, or WebP image.');
   }
 
   const image = Buffer.from(match[2], 'base64');
   if (!image.length || image.length > MAX_OCR_IMAGE_BYTES) {
-    throw Object.assign(new Error('The image must be larger than 0 bytes and no more than 8 MB.'), { status: 413 });
+    throw invalidImage('The image must be larger than 0 bytes and no more than 7 MB.', 413);
   }
 
   const mimeType = match[1].toLowerCase();
@@ -25,61 +24,70 @@ function decodeImage(dataUrl) {
       : image.subarray(0, 4).toString() === 'RIFF' && image.subarray(8, 12).toString() === 'WEBP';
 
   if (!hasValidSignature) {
-    throw Object.assign(new Error('The uploaded image format does not match its file type.'), { status: 400 });
+    throw invalidImage('The uploaded image format does not match its file type.');
   }
 
   return image;
 }
 
-async function prepareImage(image) {
-  try {
-    const metadata = await sharp(image, { limitInputPixels: MAX_OCR_IMAGE_PIXELS }).metadata();
-    if (!metadata.width || !metadata.height) {
-      throw Object.assign(new Error('The uploaded image is invalid.'), { status: 400 });
-    }
-    if (metadata.width * metadata.height > MAX_OCR_IMAGE_PIXELS) {
-      throw Object.assign(new Error('The image dimensions are too large for OCR.'), { status: 413 });
-    }
-
-    return await sharp(image, { limitInputPixels: MAX_OCR_IMAGE_PIXELS })
-      .rotate()
-      .resize({ width: 2500, height: 2500, fit: 'inside', withoutEnlargement: true })
-      .greyscale()
-      .normalize()
-      .sharpen()
-      .png()
-      .toBuffer();
-  } catch (error) {
-    if (error.status) throw error;
-    throw Object.assign(new Error('The uploaded image is invalid or could not be prepared for OCR.'), { status: 400 });
-  }
-}
-
-function getOCRWorker() {
-  if (!workerPromise) {
-    workerPromise = createWorker('eng', OEM.LSTM_ONLY, {
-      langPath: englishModel.langPath,
-      gzip: englishModel.gzip,
-    }).catch((error) => {
-      workerPromise = null;
-      throw error;
-    });
-  }
-  return workerPromise;
-}
-
 async function recognizeImage(dataUrl) {
+  const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
+  if (!apiKey) {
+    throw Object.assign(
+      new Error('Google Cloud Vision is not configured. Add GOOGLE_CLOUD_VISION_API_KEY to the backend environment.'),
+      { status: 503 },
+    );
+  }
+
   const image = decodeImage(dataUrl);
-  const preparedImage = await prepareImage(image);
-  const worker = await getOCRWorker();
-  const result = await worker.recognize(preparedImage);
-  return result.data.text.trim();
+  let response;
+  try {
+    response = await fetch(VISION_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+      },
+      body: JSON.stringify({
+        requests: [{
+          image: { content: image.toString('base64') },
+          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+        }],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      throw Object.assign(new Error('Google Cloud Vision timed out. Please try again.'), { status: 504 });
+    }
+    throw Object.assign(new Error('Could not connect to Google Cloud Vision. Please try again.'), { status: 503 });
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw Object.assign(
+        new Error('Google Cloud Vision rejected the request. Check the API key, enabled Vision API, and billing settings.'),
+        { status: 502 },
+      );
+    }
+    if (response.status === 429) {
+      throw Object.assign(new Error('Google Cloud Vision quota exceeded. Check the project quota and billing settings.'), { status: 503 });
+    }
+    throw Object.assign(new Error('Google Cloud Vision could not process this image. Please try again.'), { status: 502 });
+  }
+
+  const result = await response.json();
+  const annotation = result.responses?.[0];
+  if (annotation?.error) {
+    if (annotation.error.code === 8) {
+      throw Object.assign(new Error('Google Cloud Vision quota exceeded. Check the project quota and billing settings.'), { status: 503 });
+    }
+    throw Object.assign(new Error('Google Cloud Vision could not read this image. Try a clearer image.'), { status: 422 });
+  }
+
+  return annotation?.fullTextAnnotation?.text?.trim()
+    || annotation?.textAnnotations?.[0]?.description?.trim()
+    || '';
 }
 
-async function terminateOCRWorker() {
-  const worker = await workerPromise?.catch(() => null);
-  workerPromise = null;
-  if (worker) await worker.terminate();
-}
-
-module.exports = { recognizeImage, terminateOCRWorker };
+module.exports = { recognizeImage };

@@ -121,7 +121,7 @@ git push -u origin main
 - The Blueprint uses Render's free plan; the service may sleep after inactivity and take a short time to wake.
 - Build command: `npm install`
 - Start command: `npm start`
-- Set `DATABASE_URL` to the Neon connection string in Render's private environment settings. The Blueprint configures `FRONTEND_URL` for the Vercel production origin. Add `AI_API_KEY` only if using an external AI suggestions provider. Hosted OCR uses the backend's bundled Tesseract model and needs no OCR API key.
+- Set `DATABASE_URL` to the Neon connection string in Render's private environment settings. The Blueprint configures `FRONTEND_URL` for the Vercel production origin. Add `GOOGLE_CLOUD_VISION_API_KEY` to Render's private environment settings for OCR; never put this key in the frontend or commit it. Add `AI_API_KEY` only if using an external AI suggestions provider.
 - The Render health check uses `/api/health`. The service fails startup if `DATABASE_URL` is missing or the migration cannot be applied.
 
 ## CORS and API configuration
@@ -140,7 +140,7 @@ The project folder needs to be a Git repository before using Git push. If `git s
 
 ## AI / OCR providers
 
-Image OCR runs on the hosted Express backend using its bundled Tesseract.js English model. PNG, JPEG, and WebP images up to 8 MB are sent to the backend, automatically rotated and enhanced before OCR, and are not written to disk or stored in the database or sent to a third-party OCR provider. No OCR API key or separate Tesseract installation is required.
+Image OCR uses Google Cloud Vision's `DOCUMENT_TEXT_DETECTION` feature through the hosted Express backend. Create or select a Google Cloud project, enable the Cloud Vision API, configure billing and an API key restricted to the Vision API, then set that key as `GOOGLE_CLOUD_VISION_API_KEY` in Render's private environment settings. PNG, JPEG, and WebP images up to 7 MB are sent securely to Google for OCR. SmartLibrary does not write uploaded images to disk or store them in its database; Google processes them under its Cloud Vision terms and usage charges may apply. The key stays on the backend and is never sent to the browser. Image OCR requests are limited to 10 per IP address per 15 minutes to reduce unexpected usage.
 
 The Add Book extractor reads labeled bibliographic details from OCR text and preserves fields it cannot detect. Accession numbers and library-specific copy details (such as acquisition source, price, and condition) are not inferred from a title-page image.
 
