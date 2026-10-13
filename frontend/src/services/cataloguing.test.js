@@ -102,3 +102,11 @@ Hal Iggulden`);
   assert.equal(metadata.title, 'The DANGEROUS BOOK FOR BOYS');
   assert.equal(metadata.author, 'Conn Iggulden and Hal Iggulden');
 });
+
+test('keeps a plausible OCR author candidate when the title is unreadable', () => {
+  const metadata = extractMetadataFromText(`Gonn lggulden
+The`);
+
+  assert.equal(metadata.title, '');
+  assert.equal(metadata.author, 'Gonn lggulden');
+});

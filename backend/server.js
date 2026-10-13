@@ -6,6 +6,7 @@ const cors = require('cors');
 const { rateLimit } = require('express-rate-limit');
 const XLSX = require('xlsx');
 const { recognizeImage } = require('./ocr');
+const { searchBooks } = require('./bookLookup');
 const { query, ensureSchema } = require('./db');
 
 const app = express();
@@ -22,6 +23,16 @@ const imageOcrRateLimit = rateLimit({
   message: {
     success: false,
     message: 'OCR usage limit reached. Please wait 15 minutes before trying again.',
+  },
+});
+const bookLookupRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Book lookup limit reached. Please wait 15 minutes before trying again.',
   },
 });
 
@@ -595,6 +606,38 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
       ? {}
       : extractMetadataFromText(suppliedText),
   });
+});
+
+app.post('/api/cataloguing/lookup', bookLookupRateLimit, async (req, res) => {
+  const payload = req.body || {};
+  const title = sanitizeText(payload.title || '').slice(0, 160);
+  const author = sanitizeText(payload.author || '').slice(0, 120);
+
+  if (!title && !author) {
+    return res.status(400).json({
+      success: false,
+      message: 'A title or author is required to search the public book catalogue.',
+    });
+  }
+
+  try {
+    const result = await searchBooks({ title, author });
+    return res.status(200).json({
+      success: true,
+      ...result,
+      message: result.match
+        ? 'A likely catalogue match was found. Review the suggested class number and subjects.'
+        : result.candidates.length
+          ? 'Choose the matching book from the search results to fill its author, subjects, and suggested class details.'
+          : 'No catalogue match was found. Enter the title, author, subject, and class details manually.',
+    });
+  } catch (error) {
+    console.error('Public book catalogue lookup failed:', error);
+    return res.status(error.status || 502).json({
+      success: false,
+      message: 'The public book catalogue is temporarily unavailable. Please retry or enter the details manually.',
+    });
+  }
 });
 
 app.post('/api/cataloguing/suggest', async (req, res) => {

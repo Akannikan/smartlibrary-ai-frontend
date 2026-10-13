@@ -100,7 +100,8 @@ export default function AddBookPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [ocrProgress, setOcrProgress] = useState(null);
-  const [suggestions, setSuggestions] = useState(null);
+  const [lookupCandidates, setLookupCandidates] = useState([]);
+  const [lookupMessage, setLookupMessage] = useState('');
   const [lastOCRText, setLastOCRText] = useState('');
   const [lastOCRFields, setLastOCRFields] = useState({});
 
@@ -114,6 +115,8 @@ export default function AddBookPage() {
     setImageFile(file);
     setError('');
     setSuccess('');
+    setLookupCandidates([]);
+    setLookupMessage('');
     setLastOCRText('');
     setForm((current) => {
       const next = { ...current, rawText: '' };
@@ -137,6 +140,32 @@ export default function AddBookPage() {
     setImageFile(null);
   };
 
+  const applyBookMatch = (book, replaceableFields = lastOCRFields) => {
+    const detected = {
+      title: book.title,
+      author: book.author,
+      subjects: book.subjects?.join(', ') || '',
+      ddc_number: book.ddc_number || '',
+      call_number: book.call_number || '',
+    };
+    setLastOCRFields(detected);
+    setForm((current) => {
+      const next = { ...current };
+      Object.entries(detected).forEach(([field, value]) => {
+        if (value && (!current[field] || current[field] === replaceableFields[field])) {
+          next[field] = value;
+        }
+      });
+      return next;
+    });
+    setLookupCandidates([]);
+    setLookupMessage(
+      book.classification_source
+        ? `Catalogue match from ${book.source}. DDC ${book.ddc_number} is ${book.classification_source.toLowerCase()}; review it and follow your library's shelf-number rules.`
+        : `Catalogue match from ${book.source}. Review the details before saving.`,
+    );
+  };
+
   const handleExtract = async () => {
     if (!imageFile && !form.rawText.trim()) {
       setError('Upload an image or enter OCR text before extracting metadata.');
@@ -146,6 +175,8 @@ export default function AddBookPage() {
     setLoading(true);
     setError('');
     setSuccess('');
+    setLookupCandidates([]);
+    setLookupMessage('');
     setOcrProgress(null);
 
     try {
@@ -176,65 +207,55 @@ export default function AddBookPage() {
         throw new Error('No text was detected. Try a clearer image or enter the details manually.');
       }
 
+      const fields = extractMetadataFromText(rawText);
+      const detected = {
+        title: fields.title,
+        author: fields.author,
+        subjects: fields.subjects.join(', '),
+        ddc_number: fields.ddc_number,
+        call_number: fields.call_number,
+      };
+      const hasLookupTerms = Boolean(detected.title || detected.author);
       const reliableOCR = Number(ocrConfidence) >= MIN_OCR_CONFIDENCE
         && Number(ocrWordCount) >= MIN_OCR_WORD_COUNT;
-      const fields = imageFile && !manualText && !reliableOCR
-        ? {}
-        : extractMetadataFromText(rawText);
-      const recognizedFields = imageFile && !manualText
-        && reliableOCR
-        ? fields
-        : {};
-      setLastOCRFields(recognizedFields);
+      const recognisedFields = imageFile && !manualText && !reliableOCR
+        ? { ...detected, title: '', subjects: '', ddc_number: '', call_number: '' }
+        : detected;
+      setLastOCRFields(recognisedFields);
       setForm((current) => {
-        const extracted = Object.fromEntries(
-          Object.entries(fields).filter(([, value]) => (
-            Array.isArray(value) ? value.length > 0 : Boolean(value)
-          )),
-        );
-        return {
-          ...current,
-          ...extracted,
-          rawText,
-          subjects: fields.subjects?.length ? fields.subjects.join(', ') : current.subjects,
-        };
+        const next = { ...current, rawText };
+        Object.entries(recognisedFields).forEach(([field, value]) => {
+          if (value && (!current[field] || current[field] === lastOCRFields[field])) {
+            next[field] = value;
+          }
+        });
+        return next;
       });
+      if (hasLookupTerms) {
+        setOcrProgress('Searching the public book catalogue for subjects and class details');
+        try {
+          const lookup = await api.lookupBook({
+            title: fields.title,
+            author: fields.author,
+          });
+          setLookupMessage(lookup.message || '');
+          setLookupCandidates(lookup.candidates || []);
+          if (lookup.match) applyBookMatch(lookup.match, recognisedFields);
+        } catch (lookupError) {
+          setError(`Title and author were extracted, but catalogue lookup failed: ${lookupError.message}`);
+        }
+      } else if (imageFile && !reliableOCR) {
+        setLookupMessage('OCR could not reliably read a title or author. Try a clear, straight photo or enter either field and extract again.');
+      }
       setSuccess(
-        imageFile && !manualText && !reliableOCR
-          ? 'Text was detected, but it was not clear enough to fill the fields reliably. Try a straight, well-lit photo of the inside title page. SmartLibrary does not store uploaded images.'
-          : imageFile
-            ? 'Image processed by the built-in English OCR engine. SmartLibrary does not store uploaded images. Review the detected details before saving.'
-          : 'Text extracted. Review the detected details before saving.',
+        imageFile
+          ? 'Image processed. Review the detected details; publication and copy information remains for you to enter.'
+          : 'Text processed. Review the detected details; remaining information is for you to enter.',
       );
     } catch (err) {
       setError(err.message || 'Unable to extract text.');
     } finally {
       setOcrProgress(null);
-      setLoading(false);
-    }
-  };
-
-  const handleSuggest = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await api.suggestCataloguing({
-        title: form.title,
-        author: form.author,
-        publisher: form.publisher,
-        publication_place: form.publication_place,
-        publication_year: form.publication_year,
-        edition: form.edition,
-        isbn: form.isbn,
-        pages: form.pages,
-        physical_description: form.physical_description,
-        subjects: form.subjects ? form.subjects.split(',').map((item) => item.trim()) : [],
-      });
-      setSuggestions(result.suggestions || null);
-      if (result.message) setSuccess(result.message);
-    } catch (err) {
-      setError(err.message || 'Unable to generate suggestions.');
-    } finally {
       setLoading(false);
     }
   };
@@ -265,7 +286,8 @@ export default function AddBookPage() {
       const result = await api.createBook(payload);
       setSuccess(`Record saved successfully with accession number ${form.accession_number}.`);
       setForm(emptyForm);
-      setSuggestions(null);
+      setLookupCandidates([]);
+      setLookupMessage('');
       setImagePreview('');
       setLastOCRText('');
       setLastOCRFields({});
@@ -280,7 +302,7 @@ export default function AddBookPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Add Book</h1>
-        <p className="text-sm text-slate-600">Upload a title page to fill in the details that can be read from it. The accession number and library-specific details must be entered separately.</p>
+        <p className="text-sm text-slate-600">Upload a book cover or title page to detect the title and author, then look up subjects and suggested class details. Enter the remaining publication and copy information yourself.</p>
       </div>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
@@ -303,13 +325,32 @@ export default function AddBookPage() {
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">OCR text</label>
             <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Extracted text will appear here. You can also enter text manually." />
-            <p className="mt-2 text-xs text-slate-500">For best results, upload a straight, well-lit photo of the inside title page; decorative front covers are harder to read and may not show publisher, year, or ISBN. Images up to 7 MB are compressed in your browser and processed by the built-in English OCR engine on the library server. No external OCR account or API key is needed; images are not stored.</p>
+            <p className="mt-2 text-xs text-slate-500">Images up to 7 MB are processed by the built-in English OCR engine; the image is not stored or sent to the public catalogue. After reading the title/author, SmartLibrary searches Open Library using only that text for subjects and classification. Suggested DDC/call numbers need librarian review. No paid AI key is required.</p>
           </div>
           <div className="mt-4 flex gap-2">
             <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>{ocrProgress ? `${ocrProgress}…` : 'Extract metadata'}</button>
-            <button onClick={handleSuggest} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-stone-100" disabled={loading}>Suggest</button>
           </div>
           {ocrProgress ? <p className="mt-2 text-sm text-slate-500" role="status">{ocrProgress}…</p> : null}
+          {lookupMessage ? <p className="mt-3 text-sm text-slate-600" role="status">{lookupMessage}</p> : null}
+          {lookupCandidates.length ? (
+            <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
+              <p className="text-sm font-medium text-sky-950">Choose the matching book to fill subjects and suggested class details:</p>
+              <ul className="mt-2 space-y-2">
+                {lookupCandidates.map((candidate, index) => (
+                  <li key={`${candidate.title}-${candidate.author}-${index}`}>
+                    <button
+                      type="button"
+                      onClick={() => applyBookMatch(candidate)}
+                      className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 text-left text-sm text-slate-800 hover:bg-sky-100"
+                    >
+                      <span className="font-medium">{candidate.title}</span>
+                      {candidate.author ? <span className="block text-xs text-slate-600">{candidate.author}</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
@@ -367,7 +408,7 @@ export default function AddBookPage() {
               <input value={form.ddc_number} onChange={updateField('ddc_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>Call number</span>
+              <span>Class / call number (suggested)</span>
               <input value={form.call_number} onChange={updateField('call_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
@@ -413,20 +454,6 @@ export default function AddBookPage() {
               <textarea value={form.remarks} onChange={updateField('remarks')} rows="3" className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
           </div>
-
-          {suggestions ? (
-            <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <h3 className="text-lg font-semibold text-amber-900">AI suggestions (review required)</h3>
-              <ul className="mt-3 space-y-2 text-sm text-amber-900">
-                <li><strong>Title:</strong> {suggestions.title}</li>
-                <li><strong>Author:</strong> {suggestions.author}</li>
-                <li><strong>Publisher:</strong> {suggestions.publisher}</li>
-                <li><strong>Edition:</strong> {suggestions.edition}</li>
-                <li><strong>DDC:</strong> {suggestions.ddc_number}</li>
-                <li><strong>Call Number:</strong> {suggestions.call_number}</li>
-              </ul>
-            </div>
-          ) : null}
 
           <div className="mt-6 flex flex-wrap gap-3">
             <button onClick={handleApprove} className="rounded-lg border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-200" disabled={loading}>Approve</button>

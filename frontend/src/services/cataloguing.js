@@ -51,7 +51,10 @@ function isPlausibleText(value) {
 
 function isLikelyAuthorLine(value) {
   const words = value.split(/\s+/);
-  return /^(?:[A-Z][a-z'’-]+\s+){1,3}[A-Z][a-z'’-]+$/.test(value)
+  return words.length >= 2
+    && words.length <= 4
+    && words.some((word) => /^[A-Z]/.test(word))
+    && words.every((word) => /^[A-Za-z][A-Za-z'’-]*$/.test(word))
     && !words.some((word) => commonTitleWords.has(word.toLowerCase()));
 }
 

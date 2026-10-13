@@ -33,6 +33,10 @@ export const api = {
     `${OCR_API_BASE_URL}/api/cataloguing/extract`,
     { method: 'POST', body: JSON.stringify(data) },
   ),
+  lookupBook: (data) => apiRequest(
+    `${OCR_API_BASE_URL}/api/cataloguing/lookup`,
+    { method: 'POST', body: JSON.stringify(data) },
+  ),
   suggestCataloguing: (data) => apiRequest('/api/cataloguing/suggest', { method: 'POST', body: JSON.stringify(data) }),
   approveRecord: (data) => apiRequest('/api/cataloguing/approve', { method: 'POST', body: JSON.stringify(data) }),
   getAccessionRegister: () => apiRequest('/api/accession-register'),

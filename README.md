@@ -12,7 +12,7 @@ Browser (React + Vite)
 ```
 
 - **Dashboard** (`/`) shows the number of titles and copies plus recent additions.
-- **Add Book** (`/add-book`) enters bibliographic and copy information. A title-page image can be OCRed by the English Tesseract model running on the Express backend. Staff review the results and always assign the accession number themselves.
+- **Add Book** (`/add-book`) uses English OCR and a public catalogue lookup to suggest a book title, author, subjects and class details from a cover or title-page image. Staff enter the remaining details and always assign the accession number themselves.
 - **Catalogue** (`/catalogue`) searches for and lists records and copies.
 - **Book Details** (`/books/:id`) shows and edits a record.
 - **Accession Register** (`/accession-register`) lists physical copies and provides CSV and Excel exports.
@@ -27,6 +27,8 @@ Browser (React + Vite)
 ├── backend/
 │   ├── migrations/init.sql
 │   ├── .env.example
+│   ├── bookLookup.js
+│   ├── bookLookup.test.js
 │   ├── db.js
 │   ├── ocr.js
 │   ├── ocr.test.js
@@ -90,15 +92,16 @@ Browser (React + Vite)
 | `PORT` | Backend / Render | HTTP port; defaults to `5000` locally. Render supplies it in production. |
 | `FRONTEND_URL` | Backend / Render | Frontend origin allowed by backend CORS. |
 | `VITE_API_URL` | Frontend / local only | Optional API origin; Vite's proxy works by default. |
-| `AI_API_KEY` | Backend | Not needed for the MVP. The current Suggest feature uses local heuristics. |
+| `VITE_OCR_API_URL` | Frontend | Optional direct backend origin for OCR and catalogue lookup. |
+| `AI_API_KEY` | Backend | Not needed for the MVP. Subjects and class suggestions use the public Open Library catalogue. |
 
 Environment templates are in `backend/.env.example` and `frontend/.env.example`. Never commit `.env` files or secrets.
 
 ## OCR and privacy
 
-PNG, JPEG, and WebP images up to 7 MB are compressed in the browser and sent directly to the Express backend to avoid proxy upload limits. The bundled English Tesseract.js model tries multiple image-channel and page-layout settings. Low-confidence or sparse results are shown for review but are not used to fill the bibliographic fields. The backend does not write the uploaded image to disk or save it to the database. OCR is self-hosted and requires no paid API, external OCR provider, or API key. The public endpoint is limited to 10 image requests per IP per 15 minutes to protect the server from excessive CPU use.
+PNG, JPEG, and WebP images up to 7 MB are compressed in the browser and sent directly to the Express backend to avoid proxy upload limits. The bundled English Tesseract.js model reads the image locally on the backend; the image is not stored or sent to Open Library. SmartLibrary then searches the public Open Library catalogue using only the detected title and author to retrieve subjects and any available Dewey number. When a verified Dewey number is unavailable, a broad DDC class may be suggested from the returned subject headings; review it and the locally formatted call number before saving. No paid AI key is required. The OCR endpoint is limited to 10 image requests per IP per 15 minutes.
 
-OCR reads visible text; it does not guarantee correct catalogue data. A straight, well-lit image of the inside title page is more reliable than a decorative front cover and may include publication details missing from the cover. Image clarity, skew, print quality, page layout, and language affect accuracy. Staff should review every extracted value. The parser does not assign accession numbers or invent details that are not visible.
+OCR reads visible text; it does not guarantee correct catalogue data. If the cover text is unclear, the page offers likely Open Library matches to choose from rather than guessing the book. A straight, well-lit image helps. The title, author, subjects and DDC/call number are editable suggestions; enter publication and copy details such as accession number, price and condition manually. Staff should review all results.
 
 ## Test and build
 
@@ -117,7 +120,7 @@ npm run build
 Pop-Location
 ```
 
-Backend OCR tests use a generated sample image and the bundled model; they do not call paid services. Frontend tests cover OCR text-to-field parsing. GitHub Actions runs both test suites and the frontend build on pushes and pull requests to `main`.
+Backend tests cover OCR image recognition and matching the public catalogue response; lookup tests use fixture data and do not call external services. Frontend tests cover OCR text-to-field parsing. GitHub Actions runs both test suites and the frontend build on pushes and pull requests to `main`.
 
 ## Deployment
 
@@ -139,6 +142,6 @@ OCR uploads call the Render origin directly; set `VITE_OCR_API_URL` to that back
 ## MVP limitations
 
 - There is no login or role-based access control; do not expose sensitive production library records without adding authentication.
-- Suggest uses deterministic local heuristics, not generative AI.
+- Catalogue matches and subject-based DDC suggestions are not a substitute for a librarian's classification review.
 - OCR results need human review and can be poor for blurred, skewed, decorative, or low-contrast images.
 - Book covers often omit publication details; photograph the inside title/imprint page for best results.
