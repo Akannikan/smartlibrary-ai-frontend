@@ -14,8 +14,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   ...(process.env.FRONTEND_URLS || '').split(','),
 ]
-  .map((origin) => origin.trim().replace(/\/$/, ''))
-  .filter(Boolean);
+  .filter((origin) => typeof origin === 'string' && origin.trim())
+  .map((origin) => origin.trim().replace(/\/$/, ''));
 
 app.use(
   cors({
