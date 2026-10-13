@@ -118,6 +118,7 @@ git push -u origin main
 
 - Create a Web Service from the same GitHub repository, or use the included `render.yaml` Blueprint.
 - Set the root directory to `backend`.
+- The Blueprint uses Render's free plan; the service may sleep after inactivity and take a short time to wake.
 - Build command: `npm install`
 - Start command: `npm start`
 - Set `DATABASE_URL` to the Neon connection string in Render's private environment settings. The Blueprint configures `FRONTEND_URL` for the Vercel production origin. Add `AI_API_KEY` only if using an external AI suggestions provider; image OCR is local and needs no key.
