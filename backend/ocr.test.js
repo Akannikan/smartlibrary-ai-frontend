@@ -1,112 +1,62 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { recognizeImage } = require('./ocr');
+const sharp = require('sharp');
+const { recognizeImage, terminateOCRWorker } = require('./ocr');
 
-const validPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/TioAAAAASUVORK5CYII=';
-
-function setTestApiKey(context, value) {
-  const previousKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
-  if (value === undefined) delete process.env.GOOGLE_CLOUD_VISION_API_KEY;
-  else process.env.GOOGLE_CLOUD_VISION_API_KEY = value;
-  context.after(() => {
-    if (previousKey === undefined) delete process.env.GOOGLE_CLOUD_VISION_API_KEY;
-    else process.env.GOOGLE_CLOUD_VISION_API_KEY = previousKey;
-  });
-}
-
-test('requires Google Cloud Vision to be configured', async (context) => {
-  setTestApiKey(context, undefined);
-
-  await assert.rejects(
-    recognizeImage(validPng),
-    { status: 503, message: /GOOGLE_CLOUD_VISION_API_KEY/ },
+test('rejects unsupported image data URLs', () => {
+  assert.throws(
+    () => recognizeImage('data:text/plain;base64,SGVsbG8='),
+    { status: 400 },
   );
 });
 
-test('rejects unsupported and malformed image data URLs', async (context) => {
-  context.mock.method(global, 'fetch', async () => {
-    throw new Error('fetch must not be called for an invalid image');
-  });
-  setTestApiKey(context, 'test-key');
-
-  await assert.rejects(
-    recognizeImage('data:text/plain;base64,SGVsbG8='),
-    { status: 400 },
-  );
-  await assert.rejects(
-    recognizeImage('data:image/jpeg;base64,SGVsbG8='),
+test('rejects image data with a mismatched signature', () => {
+  assert.throws(
+    () => recognizeImage('data:image/jpeg;base64,SGVsbG8='),
     { status: 400, message: /does not match/ },
   );
 });
 
-test('rejects images larger than the provider request limit', async (context) => {
-  context.mock.method(global, 'fetch', async () => {
-    throw new Error('fetch must not be called for an oversized image');
-  });
-  setTestApiKey(context, 'test-key');
+test('rejects images larger than 7 MB', () => {
   const oversizedPng = Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     Buffer.alloc(7 * 1024 * 1024),
   ]);
 
-  await assert.rejects(
-    recognizeImage(`data:image/png;base64,${oversizedPng.toString('base64')}`),
+  assert.throws(
+    () => recognizeImage(`data:image/png;base64,${oversizedPng.toString('base64')}`),
     { status: 413, message: /no more than 7 MB/ },
   );
 });
 
-test('sends the image to document-text detection and returns recognized text', async (context) => {
-  setTestApiKey(context, 'test-key');
-  let requestUrl;
-  let requestBody;
-  let requestHeaders;
-  context.mock.method(global, 'fetch', async (url, options) => {
-    requestUrl = url;
-    requestHeaders = options.headers;
-    requestBody = JSON.parse(options.body);
-    return new Response(JSON.stringify({
-      responses: [{ fullTextAnnotation: { text: 'THE QUIET LIBRARY\nBY JANE DOE' } }],
-    }), { status: 200 });
-  });
+test('recognizes a clear title page using the bundled English Tesseract model', async (context) => {
+  context.after(terminateOCRWorker);
+  const image = await sharp(Buffer.from(`
+    <svg width="1600" height="500" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="white"/>
+      <text x="100" y="190" font-family="sans-serif" font-size="100" fill="black">THE QUIET LIBRARY</text>
+      <text x="100" y="330" font-family="sans-serif" font-size="64" fill="black">BY JANE DOE</text>
+    </svg>
+  `)).png().toBuffer();
 
-  const text = await recognizeImage(validPng);
+  const text = await recognizeImage(`data:image/png;base64,${image.toString('base64')}`);
 
-  assert.equal(text, 'THE QUIET LIBRARY\nBY JANE DOE');
-  assert.equal(requestUrl, 'https://vision.googleapis.com/v1/images:annotate');
-  assert.equal(requestHeaders['X-Goog-Api-Key'], 'test-key');
-  assert.equal(requestBody.requests[0].features[0].type, 'DOCUMENT_TEXT_DETECTION');
-  assert.equal(requestBody.requests[0].image.content, Buffer.from(validPng.split(',')[1], 'base64').toString('base64'));
+  assert.match(text, /THE QUIET LIBRARY/i);
+  assert.match(text, /JANE DOE/i);
 });
 
-test('reports invalid Google Cloud Vision credentials without exposing provider errors', async (context) => {
-  setTestApiKey(context, 'test-key');
-  context.mock.method(global, 'fetch', async () => new Response('forbidden', { status: 403 }));
+test('queues concurrent OCR jobs on the shared worker', async (context) => {
+  context.after(terminateOCRWorker);
+  const image = await sharp(Buffer.from(`
+    <svg width="1200" height="300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="white"/>
+      <text x="80" y="190" font-family="sans-serif" font-size="90" fill="black">SECOND TEST BOOK</text>
+    </svg>
+  `)).png().toBuffer();
+  const dataUrl = `data:image/png;base64,${image.toString('base64')}`;
 
-  await assert.rejects(
-    recognizeImage(validPng),
-    { status: 502, message: /Check the API key/ },
-  );
-});
+  const results = await Promise.all([recognizeImage(dataUrl), recognizeImage(dataUrl)]);
 
-test('returns an empty string when the provider finds no text', async (context) => {
-  setTestApiKey(context, 'test-key');
-  context.mock.method(global, 'fetch', async () => new Response(
-    JSON.stringify({ responses: [{}] }),
-    { status: 200 },
-  ));
-
-  assert.equal(await recognizeImage(validPng), '');
-});
-
-test('reports provider quota exhaustion as a service-unavailable error', async (context) => {
-  setTestApiKey(context, 'test-key');
-  context.mock.method(global, 'fetch', async () => new Response(
-    JSON.stringify({ responses: [{ error: { code: 8, message: 'quota exceeded' } }] }),
-    { status: 200 },
-  ));
-
-  await assert.rejects(
-    recognizeImage(validPng),
-    { status: 503, message: /quota exceeded/i },
-  );
+  assert.equal(results.length, 2);
+  assert.ok(results.every((text) => /SECOND TEST BOOK/i.test(text)));
 });

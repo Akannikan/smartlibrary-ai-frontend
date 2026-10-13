@@ -1,5 +1,11 @@
+const sharp = require('sharp');
+const { createWorker, OEM } = require('tesseract.js');
+const englishModel = require('@tesseract.js-data/eng');
+
 const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
-const VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
+const MAX_OCR_IMAGE_PIXELS = 40_000_000;
+let workerPromise;
+let recognitionQueue = Promise.resolve();
 
 function invalidImage(message, status = 400) {
   return Object.assign(new Error(message), { status });
@@ -30,64 +36,61 @@ function decodeImage(dataUrl) {
   return image;
 }
 
-async function recognizeImage(dataUrl) {
-  const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
-  if (!apiKey) {
-    throw Object.assign(
-      new Error('Google Cloud Vision is not configured. Add GOOGLE_CLOUD_VISION_API_KEY to the backend environment.'),
-      { status: 503 },
-    );
-  }
-
-  const image = decodeImage(dataUrl);
-  let response;
+async function prepareImage(image) {
   try {
-    response = await fetch(VISION_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': apiKey,
-      },
-      body: JSON.stringify({
-        requests: [{
-          image: { content: image.toString('base64') },
-          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-        }],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const metadata = await sharp(image, { limitInputPixels: MAX_OCR_IMAGE_PIXELS }).metadata();
+    if (!metadata.width || !metadata.height) {
+      throw invalidImage('The uploaded image is invalid.');
+    }
+    if (metadata.width * metadata.height > MAX_OCR_IMAGE_PIXELS) {
+      throw invalidImage('The image dimensions are too large for OCR.', 413);
+    }
+
+    return await sharp(image, { limitInputPixels: MAX_OCR_IMAGE_PIXELS })
+      .rotate()
+      .resize({ width: 2500, height: 2500, fit: 'inside', withoutEnlargement: true })
+      .greyscale()
+      .normalize()
+      .sharpen()
+      .png()
+      .toBuffer();
   } catch (error) {
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-      throw Object.assign(new Error('Google Cloud Vision timed out. Please try again.'), { status: 504 });
-    }
-    throw Object.assign(new Error('Could not connect to Google Cloud Vision. Please try again.'), { status: 503 });
+    if (error.status) throw error;
+    throw invalidImage('The uploaded image is invalid or could not be prepared for OCR.');
   }
-
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw Object.assign(
-        new Error('Google Cloud Vision rejected the request. Check the API key, enabled Vision API, and billing settings.'),
-        { status: 502 },
-      );
-    }
-    if (response.status === 429) {
-      throw Object.assign(new Error('Google Cloud Vision quota exceeded. Check the project quota and billing settings.'), { status: 503 });
-    }
-    throw Object.assign(new Error('Google Cloud Vision could not process this image. Please try again.'), { status: 502 });
-  }
-
-  const result = await response.json();
-  const annotation = result.responses?.[0];
-  if (annotation?.error) {
-    if (annotation.error.code === 8) {
-      throw Object.assign(new Error('Google Cloud Vision quota exceeded. Check the project quota and billing settings.'), { status: 503 });
-    }
-    throw Object.assign(new Error('Google Cloud Vision could not read this image. Try a clearer image.'), { status: 422 });
-  }
-
-  return annotation?.fullTextAnnotation?.text?.trim()
-    || annotation?.textAnnotations?.[0]?.description?.trim()
-    || '';
 }
 
-module.exports = { recognizeImage };
+function getOCRWorker() {
+  if (!workerPromise) {
+    workerPromise = createWorker('eng', OEM.LSTM_ONLY, {
+      langPath: englishModel.langPath,
+      gzip: englishModel.gzip,
+    }).catch((error) => {
+      workerPromise = null;
+      throw error;
+    });
+  }
+  return workerPromise;
+}
+
+async function runRecognition(image) {
+  const preparedImage = await prepareImage(image);
+  const worker = await getOCRWorker();
+  const result = await worker.recognize(preparedImage);
+  return result.data.text.trim();
+}
+
+function recognizeImage(dataUrl) {
+  const image = decodeImage(dataUrl);
+  const recognition = recognitionQueue.then(() => runRecognition(image));
+  recognitionQueue = recognition.catch(() => {});
+  return recognition;
+}
+
+async function terminateOCRWorker() {
+  const worker = await workerPromise?.catch(() => null);
+  workerPromise = null;
+  if (worker) await worker.terminate();
+}
+
+module.exports = { recognizeImage, terminateOCRWorker };
