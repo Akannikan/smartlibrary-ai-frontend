@@ -39,10 +39,31 @@ test('recognizes a clear title page using the bundled English Tesseract model', 
     </svg>
   `)).png().toBuffer();
 
-  const text = await recognizeImage(`data:image/png;base64,${image.toString('base64')}`);
+  const result = await recognizeImage(`data:image/png;base64,${image.toString('base64')}`);
 
-  assert.match(text, /THE QUIET LIBRARY/i);
-  assert.match(text, /JANE DOE/i);
+  assert.match(result.text, /THE QUIET LIBRARY/i);
+  assert.match(result.text, /JANE DOE/i);
+  assert.ok(result.confidence >= 45);
+});
+
+test('recognizes a decorative cover with separate title and author lines', async (context) => {
+  context.after(terminateOCRWorker);
+  const image = await sharp(Buffer.from(`
+    <svg width="1200" height="1500" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#f00050"/>
+      <text x="230" y="130" font-family="serif" font-size="48" fill="#fff">CONN IGGULDEN</text>
+      <text x="100" y="460" font-family="serif" font-size="100" font-weight="bold" fill="#ffe08a">THE DANGEROUS</text>
+      <text x="310" y="620" font-family="serif" font-size="100" font-weight="bold" fill="#ffe08a">BOOK FOR BOYS</text>
+      <text x="400" y="1390" font-family="serif" font-size="48" fill="#fff">HAL IGGULDEN</text>
+    </svg>
+  `)).png().toBuffer();
+
+  const result = await recognizeImage(`data:image/png;base64,${image.toString('base64')}`);
+
+  assert.match(result.text, /DANGEROUS/i);
+  assert.match(result.text, /CONN IGGULDEN/i);
+  assert.match(result.text, /HAL IGGULDEN/i);
+  assert.ok(result.confidence >= 45);
 });
 
 test('queues concurrent OCR jobs on the shared worker', async (context) => {
@@ -58,5 +79,5 @@ test('queues concurrent OCR jobs on the shared worker', async (context) => {
   const results = await Promise.all([recognizeImage(dataUrl), recognizeImage(dataUrl)]);
 
   assert.equal(results.length, 2);
-  assert.ok(results.every((text) => /SECOND TEST BOOK/i.test(text)));
+  assert.ok(results.every((result) => /SECOND TEST BOOK/i.test(result.text)));
 });

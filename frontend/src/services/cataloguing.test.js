@@ -84,3 +84,21 @@ test('rejects an ISBN whose check digit is invalid', () => {
 
   assert.equal(metadata.isbn, '');
 });
+
+test('does not use fragmented OCR characters as a title or author', () => {
+  const metadata = extractMetadataFromText(`i 0 Te Ah ETT A
+By oe de PS st gf 9 bi i I ES Ji`);
+
+  assert.equal(metadata.title, '');
+  assert.equal(metadata.author, '');
+});
+
+test('combines stacked cover title lines and picks out unlabelled author lines', () => {
+  const metadata = extractMetadataFromText(`Conn Iggulden
+The DANGEROUS
+BOOK FOR BOYS
+Hal Iggulden`);
+
+  assert.equal(metadata.title, 'The DANGEROUS BOOK FOR BOYS');
+  assert.equal(metadata.author, 'Conn Iggulden and Hal Iggulden');
+});

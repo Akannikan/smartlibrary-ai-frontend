@@ -10,6 +10,7 @@ const { query, ensureSchema } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const MIN_OCR_CONFIDENCE = 45;
 app.set('trust proxy', 1);
 const imageOcrRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -536,6 +537,7 @@ app.patch('/api/copies/:id', async (req, res) => {
 app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
   const payload = req.body || {};
   let suppliedText = sanitizeText(payload.rawText || '');
+  let ocrConfidence;
 
   if (payload.image !== undefined) {
     if (typeof payload.image !== 'string') {
@@ -547,8 +549,9 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
     }
 
     try {
-      const extractedText = await recognizeImage(payload.image);
-      suppliedText = [suppliedText, extractedText].filter(Boolean).join('\n');
+      const recognition = await recognizeImage(payload.image);
+      suppliedText = [suppliedText, recognition.text].filter(Boolean).join('\n');
+      ocrConfidence = recognition.confidence;
     } catch (error) {
       if (error.status) {
         return res.status(error.status).json({ success: false, message: error.message, fields: {} });
@@ -574,9 +577,16 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: payload.image ? 'Text extracted with the built-in English OCR engine.' : 'Text extracted. Review the detected details before saving.',
+    message: payload.image && ocrConfidence < MIN_OCR_CONFIDENCE
+      ? 'Some text was read, but the image is too unclear for reliable automatic fields. Try a clear title page or enter the details manually.'
+      : payload.image
+        ? 'Text extracted with the built-in English OCR engine. Review the detected details before saving.'
+        : 'Text extracted. Review the detected details before saving.',
     extractedText: suppliedText,
-    fields: extractMetadataFromText(suppliedText),
+    ...(payload.image ? { ocrConfidence } : {}),
+    fields: payload.image && ocrConfidence < MIN_OCR_CONFIDENCE && !sanitizeText(payload.rawText)
+      ? {}
+      : extractMetadataFromText(suppliedText),
   });
 });
 

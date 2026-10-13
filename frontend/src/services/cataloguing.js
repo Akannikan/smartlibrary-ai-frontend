@@ -19,6 +19,7 @@ const labelDefinitions = [
 const labelToField = new Map(
   labelDefinitions.flatMap(({ field, labels }) => labels.map((label) => [label, field])),
 );
+const commonTitleWords = new Set(['a', 'an', 'and', 'for', 'from', 'in', 'of', 'on', 'the', 'to', 'with']);
 const labelPattern = labelDefinitions
   .flatMap(({ labels }) => labels)
   .sort((left, right) => right.length - left.length)
@@ -34,6 +35,24 @@ function cleanValue(value) {
     .replace(/^[\s:;\-–—]+|[\s;]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function isPlausibleText(value) {
+  if (/^\d{1,4}$/.test(value.trim())) return true;
+  const words = value.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
+  const longerWords = words.filter((word) => word.length >= 3);
+  const letters = (value.match(/[A-Za-z]/g) || []).length;
+  const visibleCharacters = (value.match(/[A-Za-z0-9]/g) || []).length;
+  const hasReadableWordShape = longerWords.length >= 2
+    || (longerWords.length === 1 && words.length <= 3 && longerWords[0].length >= 4);
+
+  return hasReadableWordShape && visibleCharacters > 0 && letters / visibleCharacters >= 0.75;
+}
+
+function isLikelyAuthorLine(value) {
+  const words = value.split(/\s+/);
+  return /^(?:[A-Z][a-z'’-]+\s+){1,3}[A-Z][a-z'’-]+$/.test(value)
+    && !words.some((word) => commonTitleWords.has(word.toLowerCase()));
 }
 
 function getLabeledValues(text) {
@@ -121,11 +140,44 @@ export function extractMetadataFromText(rawText = '') {
   splitTitleAndSubtitle(values);
 
   if (!values.title) {
-    values.title = lines.find((line) => !isMetadataLabelLine(line) && !/^\d+$/.test(line)) || '';
+    const titleIndex = lines.findIndex((line) => (
+      !isMetadataLabelLine(line)
+      && !/^\d+$/.test(line)
+      && !isLikelyAuthorLine(line)
+      && isPlausibleText(line)
+    ));
+    if (titleIndex >= 0) {
+      const titleLines = [lines[titleIndex]];
+      const titleHasDisplayCaps = /[A-Z]/.test(lines[titleIndex])
+        && (
+          lines[titleIndex] === lines[titleIndex].toUpperCase()
+          || /\b[A-Z]{3,}\b/.test(lines[titleIndex])
+        );
+      for (let index = titleIndex + 1; titleHasDisplayCaps && index < lines.length && titleLines.length < 3; index += 1) {
+        const line = lines[index];
+        if (
+          isMetadataLabelLine(line)
+          || isLikelyAuthorLine(line)
+          || !isPlausibleText(line)
+          || line !== line.toUpperCase()
+          || !/[A-Z]/.test(line)
+        ) break;
+        titleLines.push(line);
+      }
+      values.title = titleLines.join(' ');
+    }
   }
   if (!values.author) {
     values.author = text.match(/^\s*by[ \t]*(?:\n[ \t]*|[ \t]+)([^\n\r]+)/im)?.[1]?.trim() || '';
   }
+  if (!values.author) {
+    const authorLines = lines.filter((line) => isLikelyAuthorLine(line));
+    if (authorLines.length) {
+      values.author = [...new Set(authorLines)].join(' and ');
+    }
+  }
+  if (!isPlausibleText(values.title || '')) values.title = '';
+  if (!isPlausibleText(values.author || '')) values.author = '';
 
   values.isbn = extractIsbn(text) || (values.isbn ? extractIsbn(values.isbn) : '');
   values.publication_year = values.publication_year?.match(/\b(?:18|19|20|21)\d{2}\b/)?.[0] || extractYear(text);

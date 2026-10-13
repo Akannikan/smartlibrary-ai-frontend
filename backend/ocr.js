@@ -1,5 +1,5 @@
 const sharp = require('sharp');
-const { createWorker, OEM } = require('tesseract.js');
+const { createWorker, OEM, PSM } = require('tesseract.js');
 const englishModel = require('@tesseract.js-data/eng');
 
 const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
@@ -36,9 +36,12 @@ function decodeImage(dataUrl) {
   return image;
 }
 
-async function prepareImage(image) {
+async function prepareImage(image, channel = 'grey') {
   try {
-    const metadata = await sharp(image, { limitInputPixels: MAX_OCR_IMAGE_PIXELS }).metadata();
+    let pipeline = sharp(image, { limitInputPixels: MAX_OCR_IMAGE_PIXELS })
+      .rotate()
+      .resize({ width: 2500, height: 2500, fit: 'inside', withoutEnlargement: true });
+    const metadata = await pipeline.metadata();
     if (!metadata.width || !metadata.height) {
       throw invalidImage('The uploaded image is invalid.');
     }
@@ -46,14 +49,11 @@ async function prepareImage(image) {
       throw invalidImage('The image dimensions are too large for OCR.', 413);
     }
 
-    return await sharp(image, { limitInputPixels: MAX_OCR_IMAGE_PIXELS })
-      .rotate()
-      .resize({ width: 2500, height: 2500, fit: 'inside', withoutEnlargement: true })
-      .greyscale()
+    pipeline = (channel === 'green' ? pipeline.extractChannel('green') : pipeline.greyscale())
       .normalize()
       .sharpen()
-      .png()
-      .toBuffer();
+      .png();
+    return await pipeline.toBuffer();
   } catch (error) {
     if (error.status) throw error;
     throw invalidImage('The uploaded image is invalid or could not be prepared for OCR.');
@@ -74,10 +74,43 @@ function getOCRWorker() {
 }
 
 async function runRecognition(image) {
-  const preparedImage = await prepareImage(image);
+  const [greyImage, greenImage] = await Promise.all([
+    prepareImage(image, 'red'),
+    prepareImage(image, 'green'),
+  ]);
   const worker = await getOCRWorker();
-  const result = await worker.recognize(preparedImage);
-  return result.data.text.trim();
+  const passes = [
+    { image: greyImage, mode: PSM.AUTO },
+    { image: greyImage, mode: PSM.SPARSE_TEXT },
+    { image: greenImage, mode: PSM.SPARSE_TEXT },
+  ];
+  const candidates = [];
+
+  for (const pass of passes) {
+    await worker.setParameters({ tessedit_pageseg_mode: pass.mode });
+    const result = await worker.recognize(pass.image);
+    const text = result.data.text.trim();
+    const words = result.data.words || [];
+    const alphabeticWords = words.filter((word) => /[a-z]/i.test(word.text));
+    const readableWordRatio = alphabeticWords.length
+      ? alphabeticWords.filter((word) => /^[a-z][a-z'’-]+$/i.test(word.text)).length / alphabeticWords.length
+      : 0;
+    const shortWordRatio = alphabeticWords.length
+      ? alphabeticWords.filter((word) => word.text.length <= 2).length / alphabeticWords.length
+      : 1;
+    const confidence = Number.isFinite(result.data.confidence) ? result.data.confidence : 0;
+
+    candidates.push({
+      text,
+      confidence,
+      score: confidence * 0.65 + readableWordRatio * 20 - shortWordRatio * 15,
+    });
+  }
+
+  const best = candidates.reduce((selected, candidate) => (
+    candidate.score > selected.score ? candidate : selected
+  ));
+  return { text: best.text, confidence: Math.round(best.confidence) };
 }
 
 function recognizeImage(dataUrl) {

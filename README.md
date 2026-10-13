@@ -96,9 +96,9 @@ Environment templates are in `backend/.env.example` and `frontend/.env.example`.
 
 ## OCR and privacy
 
-PNG, JPEG, and WebP images up to 7 MB are sent to the Express backend and processed with the bundled English Tesseract.js model. The backend does not write the uploaded image to disk or save it to the database. OCR is self-hosted and requires no paid API, external OCR provider, or API key. The public endpoint is limited to 10 image requests per IP per 15 minutes to protect the server from excessive CPU use.
+PNG, JPEG, and WebP images up to 7 MB are compressed in the browser and sent to the Express backend, where the bundled English Tesseract.js model tries multiple image-channel and page-layout settings. Low-confidence results are shown for review but are not used to fill the bibliographic fields. The backend does not write the uploaded image to disk or save it to the database. OCR is self-hosted and requires no paid API, external OCR provider, or API key. The public endpoint is limited to 10 image requests per IP per 15 minutes to protect the server from excessive CPU use.
 
-OCR reads visible text; it does not guarantee correct catalogue data. Image clarity, skew, print quality, page layout, and language affect accuracy. Staff should review every extracted value. The parser does not assign accession numbers or invent details that are not visible.
+OCR reads visible text; it does not guarantee correct catalogue data. A straight, well-lit image of the inside title page is more reliable than a decorative front cover and may include publication details missing from the cover. Image clarity, skew, print quality, page layout, and language affect accuracy. Staff should review every extracted value. The parser does not assign accession numbers or invent details that are not visible.
 
 ## Test and build
 

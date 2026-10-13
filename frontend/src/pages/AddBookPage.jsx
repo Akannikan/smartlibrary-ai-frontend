@@ -3,6 +3,67 @@ import api from '../services/api';
 import { extractMetadataFromText } from '../services/cataloguing';
 
 const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
+const MAX_OCR_REQUEST_IMAGE_BYTES = 3 * 1024 * 1024;
+const MIN_OCR_CONFIDENCE = 45;
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('The selected image could not be opened.'));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function canvasToBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('The selected image could not be prepared for OCR.'));
+    }, 'image/jpeg', quality);
+  });
+}
+
+async function prepareOCRImage(file) {
+  const image = await loadImage(file);
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('This browser cannot prepare the image for OCR.');
+
+  let maxDimension = 2200;
+  let quality = 0.86;
+  let blob;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.round(image.naturalWidth * scale);
+    canvas.height = Math.round(image.naturalHeight * scale);
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    blob = await canvasToBlob(canvas, quality);
+    if (blob.size <= MAX_OCR_REQUEST_IMAGE_BYTES) break;
+    maxDimension = Math.round(maxDimension * 0.8);
+    quality = Math.max(0.62, quality - 0.08);
+  }
+
+  if (!blob || blob.size > MAX_OCR_REQUEST_IMAGE_BYTES) {
+    throw new Error('The image could not be compressed enough to send for OCR. Try a smaller image.');
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Unable to read the selected image.'));
+    reader.readAsDataURL(blob);
+  });
+}
 
 const emptyForm = {
   title: '',
@@ -39,6 +100,8 @@ export default function AddBookPage() {
   const [success, setSuccess] = useState('');
   const [ocrProgress, setOcrProgress] = useState(null);
   const [suggestions, setSuggestions] = useState(null);
+  const [lastOCRText, setLastOCRText] = useState('');
+  const [lastOCRFields, setLastOCRFields] = useState({});
 
   const updateField = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -50,6 +113,19 @@ export default function AddBookPage() {
     setImageFile(file);
     setError('');
     setSuccess('');
+    setLastOCRText('');
+    setForm((current) => {
+      const next = { ...current, rawText: '' };
+      Object.entries(lastOCRFields).forEach(([field, detectedValue]) => {
+        const currentValue = current[field];
+        const previousDetectedValue = Array.isArray(detectedValue)
+          ? detectedValue.join(', ')
+          : detectedValue;
+        if (currentValue === previousDetectedValue) next[field] = emptyForm[field];
+      });
+      return next;
+    });
+    setLastOCRFields({});
     const reader = new FileReader();
     reader.onload = () => setImagePreview(reader.result);
     reader.readAsDataURL(file);
@@ -72,7 +148,12 @@ export default function AddBookPage() {
     setOcrProgress(null);
 
     try {
-      let rawText = form.rawText.trim();
+      const rawTextBeforeExtraction = form.rawText.trim();
+      const manualText = imageFile && rawTextBeforeExtraction === lastOCRText.trim()
+        ? ''
+        : rawTextBeforeExtraction;
+      let rawText = rawTextBeforeExtraction;
+      let ocrConfidence;
 
       if (imageFile) {
         if (imageFile.size > MAX_OCR_IMAGE_BYTES) {
@@ -80,22 +161,26 @@ export default function AddBookPage() {
         }
 
         setOcrProgress('Sending image to the library server');
-        const image = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error('Unable to read the selected image.'));
-          reader.readAsDataURL(imageFile);
-        });
+        const image = await prepareOCRImage(imageFile);
         setOcrProgress('Reading text with the built-in OCR engine');
-        const result = await api.extractText({ image, rawText });
+        const result = await api.extractText({ image, rawText: manualText });
         rawText = result.extractedText || '';
+        ocrConfidence = result.ocrConfidence;
+        setLastOCRText(rawText);
       }
 
       if (!rawText) {
         throw new Error('No text was detected. Try a clearer image or enter the details manually.');
       }
 
-      const fields = extractMetadataFromText(rawText);
+      const fields = imageFile && !manualText && !(Number(ocrConfidence) >= MIN_OCR_CONFIDENCE)
+        ? {}
+        : extractMetadataFromText(rawText);
+      const recognizedFields = imageFile && !manualText
+        && Number(ocrConfidence) >= MIN_OCR_CONFIDENCE
+        ? fields
+        : {};
+      setLastOCRFields(recognizedFields);
       setForm((current) => {
         const extracted = Object.fromEntries(
           Object.entries(fields).filter(([, value]) => (
@@ -106,12 +191,14 @@ export default function AddBookPage() {
           ...current,
           ...extracted,
           rawText,
-          subjects: fields.subjects.length ? fields.subjects.join(', ') : current.subjects,
+          subjects: fields.subjects?.length ? fields.subjects.join(', ') : current.subjects,
         };
       });
       setSuccess(
-        imageFile
-          ? 'Image processed by the built-in English OCR engine. SmartLibrary does not store uploaded images. Review the detected details before saving.'
+        imageFile && !manualText && !(Number(ocrConfidence) >= MIN_OCR_CONFIDENCE)
+          ? 'Text was detected, but it was not clear enough to fill the fields reliably. Try a straight, well-lit photo of the inside title page. SmartLibrary does not store uploaded images.'
+          : imageFile
+            ? 'Image processed by the built-in English OCR engine. SmartLibrary does not store uploaded images. Review the detected details before saving.'
           : 'Text extracted. Review the detected details before saving.',
       );
     } catch (err) {
@@ -175,6 +262,8 @@ export default function AddBookPage() {
       setForm(emptyForm);
       setSuggestions(null);
       setImagePreview('');
+      setLastOCRText('');
+      setLastOCRFields({});
     } catch (err) {
       setError(err.message || 'Unable to save the record.');
     } finally {
@@ -198,7 +287,7 @@ export default function AddBookPage() {
           <div className="mt-4">
             <label className="flex h-48 cursor-pointer items-center justify-center rounded-xl border border-dashed border-stone-300 bg-stone-50 text-center text-sm text-slate-500">
               <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleImageUpload} />
-              {imagePreview ? <img src={imagePreview} alt="Book cover preview" className="h-full w-full rounded-xl object-cover" /> : 'Upload front cover or title page image'}
+              {imagePreview ? <img src={imagePreview} alt="Book cover preview" className="h-full w-full rounded-xl object-contain" /> : 'Upload front cover or title page image'}
             </label>
             {imagePreview ? (
               <button type="button" onClick={handleRemoveImage} className="mt-3 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-stone-100">
@@ -209,7 +298,7 @@ export default function AddBookPage() {
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">OCR text</label>
             <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Extracted text will appear here. You can also enter text manually." />
-            <p className="mt-2 text-xs text-slate-500">Images up to 7 MB are processed by the built-in English OCR engine on the library server. No external OCR account or API key is needed; images are not stored. Details not visible in the image are left unchanged rather than guessed.</p>
+            <p className="mt-2 text-xs text-slate-500">For best results, upload a straight, well-lit photo of the inside title page; decorative front covers are harder to read and may not show publisher, year, or ISBN. Images up to 7 MB are compressed in your browser and processed by the built-in English OCR engine on the library server. No external OCR account or API key is needed; images are not stored.</p>
           </div>
           <div className="mt-4 flex gap-2">
             <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>{ocrProgress ? `${ocrProgress}…` : 'Extract metadata'}</button>
