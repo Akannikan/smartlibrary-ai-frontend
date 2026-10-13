@@ -1,3 +1,5 @@
+import { parseApiResponse } from './apiResponse';
+
 const API_BASE_URL = import.meta.env.DEV ? import.meta.env.VITE_API_URL || '' : '';
 
 async function apiRequest(path, options = {}) {
@@ -9,14 +11,7 @@ async function apiRequest(path, options = {}) {
     ...options,
   });
 
-  const text = await response.text();
-  const result = text ? JSON.parse(text) : {};
-
-  if (!response.ok) {
-    throw new Error(result.message || 'Request failed');
-  }
-
-  return result;
+  return parseApiResponse(response);
 }
 
 export const api = {
