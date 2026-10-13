@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: smartlibrary-ai-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: FRONTEND_URLS
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: OCR_API_KEY
+        sync: false
