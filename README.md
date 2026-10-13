@@ -18,16 +18,14 @@ smartLibrary-Ai/
 │   ├── db.js
 │   ├── package.json
 │   └── server.js
-├── frontend/
-│   ├── src/
-│   ├── .env.example
-│   ├── package.json
-│   ├── tailwind.config.js
-│   ├── vite.config.js
-│   └── index.html
+├── src/
+├── .env.example
+├── package.json
+├── vite.config.js
+├── vercel.json
 ├── .gitignore
 ├── README.md
-└── package.json (optional if using workspaces)
+└── index.html
 ```
 
 ## Prerequisites
@@ -39,7 +37,6 @@ smartLibrary-Ai/
 ## Frontend install
 
 ```bash
-cd frontend
 npm install
 cp .env.example .env
 ```
@@ -85,7 +82,6 @@ npm start
 Frontend:
 
 ```bash
-cd frontend
 npm run dev
 ```
 
@@ -110,11 +106,11 @@ git push -u origin main
 ## Deploy to Vercel
 
 - Import the GitHub repository in Vercel.
-- Set the root directory to `frontend`.
+- Use the repository root as the project root.
 - Build command: `npm run build`
 - Output directory: `dist`
 - Add `VITE_API_URL` as an environment variable for Production (and Preview if needed), with the Render backend base URL, for example `https://smartlibrary-ai-api.onrender.com` (no trailing slash).
-- The `frontend/vercel.json` rewrite supports React Router page refreshes and direct links.
+- The root `vercel.json` rewrite supports React Router page refreshes and direct links.
 
 ## Deploy to Render
 
@@ -133,7 +129,7 @@ The backend accepts requests from `http://localhost:5173`, `FRONTEND_URL`, and a
 
 1. Create a GitHub repository, then from the project root push the files to it. Do not add `.env` files; only the `.env.example` templates belong in Git.
 2. Import that repository into Render and configure the backend environment values above. Wait for the deployment and confirm `https://<render-service>.onrender.com/api/health` returns `"database": "connected"`.
-3. Import the same repository into Vercel with `frontend` as its root directory. Configure `VITE_API_URL` with the exact Render service base URL and deploy.
+3. Import the same repository into Vercel using the repository root. Configure `VITE_API_URL` with the exact Render service base URL and deploy.
 4. Copy the Vercel production domain into Render's `FRONTEND_URL`, save, and redeploy the backend if the environment was added after its first deployment.
 5. Open the Vercel site and test creating a book with a manually entered accession number. Confirm it appears in the catalogue and accession register. Never use or expose a generated number as the accession number.
 
