@@ -1,153 +1,140 @@
-# smartLibrary Ai
+# smartLibrary AI
 
-smartLibrary Ai is an MVP for AI-assisted library cataloguing, review, and accession tracking. It includes a React + Vite frontend and an Express + PostgreSQL backend for cataloguing records, OCR workflow, AI suggestions, and accession register management.
+smartLibrary AI is an MVP for managing a small library catalogue and its physical copies. Staff can enter book details, use OCR to read a title-page image, review the extracted data, assign a manual accession number, and manage the catalogue and accession register.
 
-## Tech stack
-
-- Frontend: React, Vite, Tailwind CSS
-- Backend: Node.js, Express, PostgreSQL (Neon), pg
-- Data export: XLSX
-
-## Folder structure
+## How the MVP fits together
 
 ```text
-smartLibrary-Ai/
+Browser (React + Vite)
+  ├── /api/* in development ──> Express API (localhost:5000)
+  └── /api/* in production ───> Vercel rewrite ──> Express API on Render
+                                                   ├── PostgreSQL (Neon)
+                                                   └── Google Cloud Vision OCR
+```
+
+- **Dashboard** (`/`) shows catalogue totals and recent additions.
+- **Add Book** (`/add-book`) captures bibliographic and physical-copy details. An uploaded title-page image is sent to the backend for Google Cloud Vision document OCR. Detected text is parsed into fields for staff to review. Accession numbers are always entered by staff.
+- **Catalogue** (`/catalogue`) searches and lists book records and copies.
+- **Book details** (`/books/:id`) displays and edits a catalogue record.
+- **Accession Register** (`/accession-register`) lists physical copies and supports CSV/XLSX export.
+- **Express API** validates requests, runs database operations, provides OCR text to the frontend, and serves the health endpoint.
+- **PostgreSQL** stores bibliographic records separately from physical copies; one title may have multiple copies with different accession numbers.
+- **Google Cloud Vision** reads image text. It does not create reliable bibliographic metadata by itself; staff must review OCR results and supply details that are not printed on the page.
+
+## Project layout
+
+```text
+.
 ├── backend/
-│   ├── migrations/
-│   ├── .env.example
-│   ├── db.js
-│   ├── package.json
-│   └── server.js
+│   ├── migrations/init.sql       # PostgreSQL schema
+│   ├── .env.example              # Backend environment template
+│   ├── db.js                     # PostgreSQL connection and health check
+│   ├── ocr.js                    # Validates images and calls Cloud Vision
+│   ├── ocr.test.js               # Mocked OCR-provider tests; no paid calls
+│   ├── server.js                 # Express API routes and startup
+│   └── package.json
 ├── frontend/
-│   ├── src/
-│   ├── .env.example
-│   ├── package.json
-│   ├── vite.config.js
-│   └── vercel.json
+│   ├── src/pages/                # Dashboard, add-book, catalogue, details, register
+│   ├── src/services/             # API client and metadata parser
+│   ├── .env.example              # Vite environment template
+│   ├── vercel.json               # Production API and SPA rewrites
+│   ├── vite.config.js            # Development API proxy
+│   └── package.json
+├── .github/workflows/ci.yml      # Backend tests and frontend tests/build
 ├── .gitignore
-├── README.md
-└── render.yaml
+├── render.yaml                   # Render backend service blueprint
+└── README.md
 ```
 
-## Prerequisites
+## Requirements
 
-- Node.js 18+
-- npm
-- A Neon PostgreSQL connection string
-
-## Frontend install
-
-```bash
-cd frontend
-npm install
-cp .env.example .env
-```
-
-Update `VITE_API_URL` to point to the backend, for example:
-
-```env
-VITE_API_URL=http://localhost:5000
-```
-
-## Backend install
-
-```bash
-cd backend
-npm install
-cp .env.example .env
-```
-
-Set the backend environment values before starting the API:
-
-```env
-NODE_ENV=development
-PORT=5000
-DATABASE_URL=postgresql://<user>:<password>@<host>/<database>
-FRONTEND_URL=http://localhost:5173
-AI_API_KEY=
-OCR_API_KEY=
-```
-
-## Create and migrate the Neon database
-
-1. Create a Neon project and copy the connection string.
-2. Set `DATABASE_URL` in `backend/.env`.
-3. Run the app once to trigger the migration SQL in `backend/migrations/init.sql`.
-
-```bash
-cd backend
-npm start
-```
+- Node.js 20 or newer and npm.
+- PostgreSQL for saved catalogue data. A hosted Neon database works for deployment.
+- A Google Cloud project with the Cloud Vision API enabled and billing configured to use image OCR. The API key is optional for local text-only extraction, but required to extract text from images.
 
 ## Run locally
 
-Frontend:
+1. Create a PostgreSQL database and copy its connection string.
+2. In one PowerShell terminal, install and configure the backend:
 
-```bash
-cd frontend
-npm run dev
+   ```powershell
+   cd backend
+   npm ci
+   Copy-Item .env.example .env
+   ```
+
+   Set `DATABASE_URL` in `backend/.env`. For local image OCR, also set `GOOGLE_CLOUD_VISION_API_KEY`. The key belongs only in the backend environment; do not put it in a `VITE_*` variable or commit it.
+
+3. Start the backend. On its first start it applies `backend/migrations/init.sql`:
+
+   ```powershell
+   npm start
+   ```
+
+   Confirm `http://localhost:5000/api/health` reports `"database":"connected"`.
+
+4. In a second PowerShell terminal, install and start the frontend:
+
+   ```powershell
+   cd frontend
+   npm ci
+   Copy-Item .env.example .env
+   npm run dev
+   ```
+
+5. Open `http://localhost:5173`. Vite proxies `/api/*` to the local Express server. Without the Vision API key, manually entered OCR text can still be parsed, but image OCR will report that the service is not configured.
+
+## Environment variables
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Backend / Render | PostgreSQL connection string. Required to start the backend. |
+| `PORT` | Backend / Render | HTTP port; Render provides this automatically. Defaults to `5000` locally. |
+| `FRONTEND_URL` | Backend / Render | Allowed production frontend origin for CORS. |
+| `GOOGLE_CLOUD_VISION_API_KEY` | Backend / Render | Private Vision API key used for image OCR. |
+| `VITE_API_URL` | Frontend / local only | Optional API origin for local development. Vite's proxy works by default. |
+| `AI_API_KEY` | Backend | Reserved for a future external cataloguing provider; the current Suggest endpoint uses local heuristics and does not call an AI provider. |
+
+The `.env.example` files contain templates only. Never commit `.env` files, database URLs, or provider keys.
+
+## OCR data handling and cost
+
+The Add Book page accepts PNG, JPEG, and WebP images up to 7 MB. The image is sent to the Express backend and forwarded to Google's Cloud Vision `DOCUMENT_TEXT_DETECTION` endpoint. SmartLibrary does not write the uploaded image to disk or store it in its database; Google processes the image under its Cloud Vision terms and may charge for usage. Image OCR is rate-limited to 10 requests per client IP per 15 minutes. Only enable the Vision API and configure its key if you accept these terms and costs.
+
+Cloud Vision returns recognized text, not a guaranteed correct catalogue record. The frontend parser extracts fields it can recognize, leaves undetected fields unchanged, and never fills the accession number. Review all extracted values before saving.
+
+## Tests and production build
+
+From the project root:
+
+```powershell
+Push-Location backend
+npm ci
+npm test
+Pop-Location
+
+Push-Location frontend
+npm ci
+npm test
+npm run build
+Pop-Location
 ```
 
-Backend:
+Backend OCR tests mock Google responses and do not use an API key or incur Vision API charges. Frontend tests cover the text-to-metadata parser.
 
-```bash
-cd backend
-npm start
-```
+## Deployment
 
-## GitHub workflow
+### Backend on Render
 
-```bash
-git init
-git add .
-git commit -m "Initial smartLibrary Ai MVP"
-git branch -M main
-git remote add origin <your-repo-url>
-git push -u origin main
-```
+Deploy the repository using `render.yaml` (or create a Node web service with `backend` as the root directory). The service needs `DATABASE_URL`, `FRONTEND_URL`, and the private `GOOGLE_CLOUD_VISION_API_KEY` for image OCR. Set the key in Render's Environment settings and restrict it to the Cloud Vision API in Google Cloud. Do not put it in this repository. The service's health-check path is `/api/health`.
 
-## Deploy to Vercel
+### Frontend on Vercel
 
-- Import the GitHub repository in Vercel.
-- Set the root directory to `frontend`.
-- Build command: `npm run build`
-- Output directory: `dist`
-- `frontend/vercel.json` proxies `/api/*` requests to the Render service and rewrites frontend routes to `index.html`. No production `VITE_API_URL` is required.
+Import the repository with `frontend` as the root directory. Use `npm run build` and `dist` as the output directory. `frontend/vercel.json` proxies `/api/*` to the Render service and rewrites frontend routes to `index.html`. If Render assigns a different service URL, update the API rewrite before deploying.
 
-## Deploy to Render
+## Current MVP limitations
 
-- Create a Web Service from the same GitHub repository, or use the included `render.yaml` Blueprint.
-- Set the root directory to `backend`.
-- The Blueprint uses Render's free plan; the service may sleep after inactivity and take a short time to wake.
-- Build command: `npm install`
-- Start command: `npm start`
-- Set `DATABASE_URL` to the Neon connection string in Render's private environment settings. The Blueprint configures `FRONTEND_URL` for the Vercel production origin. Add `GOOGLE_CLOUD_VISION_API_KEY` to Render's private environment settings for OCR; never put this key in the frontend or commit it. Add `AI_API_KEY` only if using an external AI suggestions provider.
-- The Render health check uses `/api/health`. The service fails startup if `DATABASE_URL` is missing or the migration cannot be applied.
-
-## CORS and API configuration
-
-In local development, Vite proxies `/api/*` to `http://localhost:5000`. In production, Vercel proxies those requests to `https://smartlibrary-ai-frontend-1.onrender.com`.
-
-## Publish and connect the services
-
-1. Create a GitHub repository, then from the project root push the files to it. Do not add `.env` files; only the `.env.example` templates belong in Git.
-2. Deploy the backend from the Render Blueprint or create a Web Service with `backend` as its root directory. Set `DATABASE_URL` privately in Render and confirm `https://smartlibrary-ai-frontend-1.onrender.com/api/health` returns `"database": "connected"`.
-3. Import the same repository into Vercel with `frontend` as its root directory and deploy. The API rewrite is already configured for the Render service URL.
-4. If Render assigned a different service URL, update the `/api/:path*` destination in `frontend/vercel.json` to that URL and redeploy the frontend.
-5. Open the Vercel site and test creating a book with a manually entered accession number. Confirm it appears in the catalogue and accession register. Never use or expose a generated number as the accession number.
-
-The project folder needs to be a Git repository before using Git push. If `git status` says it is not a Git repository, initialize it with `git init` before adding the GitHub remote.
-
-## AI / OCR providers
-
-Image OCR uses Google Cloud Vision's `DOCUMENT_TEXT_DETECTION` feature through the hosted Express backend. Create or select a Google Cloud project, enable the Cloud Vision API, configure billing and an API key restricted to the Vision API, then set that key as `GOOGLE_CLOUD_VISION_API_KEY` in Render's private environment settings. PNG, JPEG, and WebP images up to 7 MB are sent securely to Google for OCR. SmartLibrary does not write uploaded images to disk or store them in its database; Google processes them under its Cloud Vision terms and usage charges may apply. The key stays on the backend and is never sent to the browser. Image OCR requests are limited to 10 per IP address per 15 minutes to reduce unexpected usage.
-
-The Add Book extractor reads labeled bibliographic details from OCR text and preserves fields it cannot detect. Accession numbers and library-specific copy details (such as acquisition source, price, and condition) are not inferred from a title-page image.
-
-`AI_API_KEY` is optional and only controls AI cataloguing suggestions. Without it, the app uses its built-in local suggestions.
-
-## Troubleshooting
-
-- If the frontend cannot reach the backend, confirm `VITE_API_URL`.
-- If the backend cannot connect to PostgreSQL, verify `DATABASE_URL` and Neon connectivity.
-- If the health endpoint fails, ensure the backend is started and the `PORT` entry matches the frontend environment.
+- There is no login or role-based access control. Restrict access appropriately before using the app with sensitive or production library data.
+- The Suggest button currently produces deterministic local heuristics, not generated AI cataloguing recommendations.
+- OCR quality depends on image quality and print layout; results always require human review.
+- Cloud Vision billing/quota configuration is managed in Google Cloud, not in the application.

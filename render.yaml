@@ -14,3 +14,5 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://smartlibrary-ai-frontend.vercel.app
+      - key: GOOGLE_CLOUD_VISION_API_KEY
+        sync: false
