@@ -12,7 +12,7 @@ Browser (React + Vite)
 ```
 
 - **Dashboard** (`/`) shows the number of titles and copies plus recent additions.
-- **Add Book** (`/add-book`) uses English OCR and searches a public catalogue by ISBN, title and author to suggest bibliographic details from a cover or title-page image. Staff enter the remaining details and always assign the accession number themselves.
+- **Add Book** (`/add-book`) uses English OCR and searches Open Library by ISBN, title and author. Confident online matches automatically fill available bibliographic details and a short book summary; staff review the suggestions and enter copy-specific details such as accession number themselves.
 - **Catalogue** (`/catalogue`) searches for and lists records and copies.
 - **Book Details** (`/books/:id`) shows and edits a record.
 - **Accession Register** (`/accession-register`) lists physical copies and provides CSV and Excel exports.
@@ -99,9 +99,9 @@ Environment templates are in `backend/.env.example` and `frontend/.env.example`.
 
 ## OCR and privacy
 
-PNG, JPEG, and WebP images up to 7 MB are compressed in the browser and sent directly to the Express backend to avoid proxy upload limits. The bundled English Tesseract.js model reads the image locally on the backend; the image is not stored or sent to Open Library. SmartLibrary searches Open Library with the detected ISBN, title and author, including separate title and author searches when a combined query is inconclusive. This supports a broad range of books, but no public catalogue contains every book or edition. When a verified Dewey number is unavailable, a broad DDC class may be suggested from the returned subject headings; review it and the locally formatted call number before saving. No paid AI key is required. The OCR endpoint is limited to 10 image requests per IP per 15 minutes.
+PNG, JPEG, and WebP images up to 7 MB are compressed in the browser and sent directly to the Express backend to avoid proxy upload limits. The bundled English Tesseract.js model reads the image locally on the backend; the image is not stored or sent to Open Library. SmartLibrary searches Open Library with the detected ISBN, title and author, including separate title and author searches and a full-text fallback when the first pass cannot confirm a match. Matching tolerates minor OCR title errors when the author also confirms the result, while uncertain results remain available for staff to select. Confident matches automatically populate the available title, author, edition, publisher, publication, ISBN, page, language, subject and classification fields. A short summary is added to Notes when Open Library provides a work description or first sentence. This supports a broad range of books, but no public catalogue contains every book or edition; details unavailable online remain editable for manual entry. When a verified Dewey number is unavailable, a broad DDC class may be suggested from the returned subject headings; review it and the locally formatted call number before saving. No paid AI key is required. The OCR endpoint is limited to 10 image requests per IP per 15 minutes.
 
-OCR reads visible text; it does not guarantee correct catalogue data. If the cover text is unclear, the page offers likely Open Library matches to choose from rather than guessing the book. A straight, well-lit image helps; a title page or ISBN can improve matching when the cover is hard to read. The title, author, subjects and DDC/call number are editable suggestions; enter publication and copy details such as accession number, price and condition manually. Staff should review all results.
+OCR reads visible text; it does not guarantee correct catalogue data. If the cover text is unclear, the page offers likely Open Library matches to choose from rather than guessing the book. A straight, well-lit image helps; a title page or ISBN can improve matching when the cover is hard to read. Catalogue and OCR details, including the generated Notes summary, are editable; enter copy details such as accession number, price and condition manually. Staff should review all results.
 
 ## Test and build
 

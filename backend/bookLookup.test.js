@@ -60,6 +60,28 @@ test('returns author-based candidates instead of guessing when OCR misses the ti
   assert.equal(result.candidates[0].authorMatch, true);
 });
 
+test('uses a full-text fallback and tolerates minor OCR title errors when the author confirms the match', async () => {
+  const queries = [];
+  const result = await searchBooks(
+    { title: 'The Dngerous Book for Boys', author: 'Conn Iggulden' },
+    async (url) => {
+      const query = Object.fromEntries(url.searchParams.entries());
+      queries.push(query);
+      return {
+        ok: true,
+        json: async () => ({
+          docs: query.q ? [dangerousBook] : [],
+        }),
+      };
+    },
+  );
+
+  assert.equal(queries.some(({ q }) => q === 'The Dngerous Book for Boys Conn Iggulden'), true);
+  assert.equal(result.match.title, dangerousBook.title);
+  assert.equal(result.match.authorMatch, true);
+  assert.equal(result.match.titleCoverage, 100);
+});
+
 test('retries an OCR-confused lowercase l as an uppercase I in the author surname', async () => {
   const queries = [];
   const result = await searchBooks(
@@ -134,6 +156,63 @@ test('uses a valid ISBN to select the matching book even when the title was not 
   assert.equal(result.match.isbnMatch, true);
 });
 
+test('returns available publication metadata and loads a brief summary for an exact work match', async () => {
+  const book = {
+    ...dangerousBook,
+    key: '/works/OL123W',
+    publisher: ['Example Press'],
+    publish_place: ['London'],
+    first_publish_year: 2010,
+    number_of_pages_median: 256,
+    language: ['eng'],
+    isbn: ['9780060761274'],
+  };
+  const result = await searchBooks(
+    { title: dangerousBook.title, author: 'Conn Iggulden' },
+    async (url) => {
+      if (String(url).includes('/works/OL123W.json')) {
+        return {
+          ok: true,
+          json: async () => ({
+            description: { value: 'A lively guide to outdoor skills, games, and practical knowledge.' },
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ docs: [book] }) };
+    },
+  );
+
+  assert.equal(result.match.publisher, 'Example Press');
+  assert.equal(result.match.publication_place, 'London');
+  assert.equal(result.match.publication_year, '2010');
+  assert.equal(result.match.isbn, '9780060761274');
+  assert.equal(result.match.pages, '256');
+  assert.equal(result.match.language, 'English');
+  assert.equal(result.match.physical_description, '256 pages');
+  assert.equal(
+    result.match.notes,
+    'A lively guide to outdoor skills, games, and practical knowledge.',
+  );
+  assert.equal('work_key' in result.match, false);
+});
+
+test('uses the Open Library first sentence when available without a work-detail request', async () => {
+  const result = await searchBooks(
+    { title: dangerousBook.title, author: 'Conn Iggulden' },
+    async () => ({
+      ok: true,
+      json: async () => ({
+        docs: [{
+          ...dangerousBook,
+          first_sentence: ['A practical handbook for young readers.'],
+        }],
+      }),
+    }),
+  );
+
+  assert.equal(result.match.notes, 'A practical handbook for young readers.');
+});
+
 test('searches title-only when OCR has a useful one-word title and no author', async () => {
   const result = await searchBooks(
     { title: 'Hamlet' },
@@ -147,6 +226,28 @@ test('searches title-only when OCR has a useful one-word title and no author', a
   );
 
   assert.equal(result.candidates[0].title, 'Hamlet');
+});
+
+test('finds different books across genres using title and author evidence', async () => {
+  const books = [
+    { title: 'Dune', author_name: ['Frank Herbert'], subject: ['Science fiction'] },
+    { title: 'Things Fall Apart', author_name: ['Chinua Achebe'], subject: ['Historical fiction'] },
+    { title: 'Atomic Habits', author_name: ['James Clear'], subject: ['Self-help'] },
+  ];
+
+  for (const book of books) {
+    const result = await searchBooks(
+      { title: book.title, author: book.author_name[0] },
+      async (url) => ({
+        ok: true,
+        json: async () => ({
+          docs: url.searchParams.get('title') === book.title ? [book] : [],
+        }),
+      }),
+    );
+    assert.equal(result.match.title, book.title);
+    assert.equal(result.match.author, book.author_name[0]);
+  }
 });
 
 test('prefers subject-based classifications for outdoor/reference books', () => {

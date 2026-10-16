@@ -6,6 +6,7 @@ const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
 const MAX_OCR_REQUEST_IMAGE_BYTES = 3 * 1024 * 1024;
 const MIN_OCR_CONFIDENCE = 45;
 const MIN_OCR_WORD_COUNT = 4;
+const inputClassName = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-100';
 
 function loadImage(file) {
   return new Promise((resolve, reject) => {
@@ -140,13 +141,23 @@ export default function AddBookPage() {
     setImageFile(null);
   };
 
-  const applyBookMatch = (book, replaceableFields = lastOCRFields) => {
+  const applyBookMatch = (book, replaceableFields = lastOCRFields, summaryMessage = '') => {
     const detected = {
       title: book.title,
       author: book.author,
+      subtitle: book.subtitle || '',
+      publisher: book.publisher || '',
+      publication_place: book.publication_place || '',
+      publication_year: book.publication_year || '',
+      edition: book.edition || '',
+      isbn: book.isbn || '',
+      pages: book.pages || '',
+      language: book.language || '',
+      physical_description: book.physical_description || '',
       subjects: book.subjects?.join(', ') || '',
       ddc_number: book.ddc_number || '',
       call_number: book.call_number || '',
+      notes: book.notes || '',
     };
     setLastOCRFields(detected);
     setForm((current) => {
@@ -160,9 +171,11 @@ export default function AddBookPage() {
     });
     setLookupCandidates([]);
     setLookupMessage(
-      book.classification_source
-        ? `Catalogue match from ${book.source}. DDC ${book.ddc_number} is ${book.classification_source.toLowerCase()}; review it and follow your library's shelf-number rules.`
-        : `Catalogue match from ${book.source}. Review the details before saving.`,
+      `${book.source} match selected. Available bibliographic details have been filled in; review them before saving.`
+      + (book.classification_source
+        ? ` DDC ${book.ddc_number} is ${book.classification_source.toLowerCase()}; follow your library's shelf-number rules.`
+        : '')
+      + (summaryMessage ? ` ${summaryMessage}` : ''),
     );
   };
 
@@ -209,11 +222,21 @@ export default function AddBookPage() {
 
       const fields = extractMetadataFromText(rawText);
       const detected = {
-        title: fields.title,
-        author: fields.author,
+        title: fields.title || '',
+        subtitle: fields.subtitle || '',
+        author: fields.author || '',
+        publisher: fields.publisher || '',
+        publication_place: fields.publication_place || '',
+        publication_year: fields.publication_year || '',
+        edition: fields.edition || '',
+        isbn: fields.isbn || '',
+        pages: fields.pages || '',
+        language: fields.language || '',
+        physical_description: fields.physical_description || '',
         subjects: fields.subjects.join(', '),
-        ddc_number: fields.ddc_number,
-        call_number: fields.call_number,
+        ddc_number: fields.ddc_number || '',
+        call_number: fields.call_number || '',
+        notes: fields.notes || '',
       };
       const hasLookupTerms = Boolean(detected.title || detected.author);
       const reliableOCR = Number(ocrConfidence) >= MIN_OCR_CONFIDENCE
@@ -239,9 +262,12 @@ export default function AddBookPage() {
             author: fields.author,
             isbn: fields.isbn,
           });
-          setLookupMessage(lookup.message || '');
           setLookupCandidates(lookup.candidates || []);
-          if (lookup.match) applyBookMatch(lookup.match, recognisedFields);
+          if (lookup.match) {
+            applyBookMatch(lookup.match, recognisedFields, lookup.summaryMessage);
+          } else {
+            setLookupMessage([lookup.message, lookup.summaryMessage].filter(Boolean).join(' '));
+          }
         } catch (lookupError) {
           setError(`Title and author were extracted, but catalogue lookup failed: ${lookupError.message}`);
         }
@@ -250,8 +276,8 @@ export default function AddBookPage() {
       }
       setSuccess(
         imageFile
-          ? 'Image processed. Review the detected details; publication and copy information remains for you to enter.'
-          : 'Text processed. Review the detected details; remaining information is for you to enter.',
+          ? 'Image processed. Detected and online catalogue details have been filled in where available. Review them before saving.'
+          : 'Text processed. Detected and online catalogue details have been filled in where available. Review them before saving.',
       );
     } catch (err) {
       setError(err.message || 'Unable to extract text.');
@@ -301,51 +327,61 @@ export default function AddBookPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Add Book</h1>
-        <p className="text-sm text-slate-600">Upload a book cover or title page to detect the title and author, then look up subjects and suggested class details. Enter the remaining publication and copy information yourself.</p>
+      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-900 via-brand-700 to-brand-500 px-6 py-7 text-white shadow-lg shadow-brand-900/10 sm:px-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-100">Smart cataloguing</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Add a book</h1>
+            <p className="mt-2 text-sm leading-6 text-emerald-50 sm:text-base">Upload a cover or title page. We’ll read the text, search Open Library, and fill in every available book detail for you to review.</p>
+          </div>
+          <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-white">OCR + Open Library</span>
+        </div>
       </div>
 
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-      {success ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{success}</div> : null}
+      {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm" role="alert">{error}</div> : null}
+      {success ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-sm" role="status">{success}</div> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.5fr]">
-        <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Book image</h2>
+      <div className="grid items-start gap-6 xl:grid-cols-[0.78fr_1.55fr]">
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.25)] sm:p-6">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Start with a book image</h2>
+            <p className="mt-1 text-sm text-slate-500">A clear cover or title page gives the best results.</p>
+          </div>
           <div className="mt-4">
-            <label className="flex h-48 cursor-pointer items-center justify-center rounded-xl border border-dashed border-stone-300 bg-stone-50 text-center text-sm text-slate-500">
+            <label className="flex h-52 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 text-center text-sm text-slate-500 transition hover:border-brand-500 hover:bg-brand-50">
               <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleImageUpload} />
-              {imagePreview ? <img src={imagePreview} alt="Book cover preview" className="h-full w-full rounded-xl object-contain" /> : 'Upload front cover or title page image'}
+              {imagePreview ? <img src={imagePreview} alt="Book cover preview" className="h-full w-full object-contain" /> : <span className="px-6 leading-6"><span className="block text-base font-semibold text-slate-700">Choose an image to upload</span><span className="mt-1 block text-xs text-slate-500">PNG, JPG or WebP · up to 7 MB</span></span>}
             </label>
             {imagePreview ? (
-              <button type="button" onClick={handleRemoveImage} className="mt-3 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-stone-100">
+              <button type="button" onClick={handleRemoveImage} className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
                 Remove image
               </button>
             ) : null}
           </div>
           <div className="mt-4">
-            <label className="block text-sm font-medium text-slate-700">OCR text</label>
-            <textarea value={form.rawText} onChange={updateField('rawText')} rows="8" className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Extracted text will appear here. You can also enter text manually." />
-            <p className="mt-2 text-xs text-slate-500">Images up to 7 MB are processed by the built-in English OCR engine; the image is not stored or sent to the public catalogue. SmartLibrary searches Open Library using detected ISBN, title, and author text, with separate searches if needed. Catalogue coverage varies, so review suggestions and enter details not found. No paid AI key is required.</p>
+            <label className="block text-sm font-semibold text-slate-700">Extracted text</label>
+            <textarea value={form.rawText} onChange={updateField('rawText')} rows="7" className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-100" placeholder="Extracted text will appear here. You can also paste text manually." />
+            <p className="mt-2 text-xs leading-5 text-slate-500">Images are processed with the built-in English OCR engine. The image is not stored or sent to Open Library. Online matches can fill in bibliographic details and a book summary when available; unavailable details can be entered manually.</p>
           </div>
-          <div className="mt-4 flex gap-2">
-            <button onClick={handleExtract} className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900" disabled={loading}>{ocrProgress ? `${ocrProgress}…` : 'Extract metadata'}</button>
+          <div className="mt-5">
+            <button onClick={handleExtract} className="w-full rounded-xl bg-brand-700 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-900 focus:outline-none focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={loading}>{loading ? `${ocrProgress || 'Working'}…` : 'Extract book details'}</button>
           </div>
-          {ocrProgress ? <p className="mt-2 text-sm text-slate-500" role="status">{ocrProgress}…</p> : null}
-          {lookupMessage ? <p className="mt-3 text-sm text-slate-600" role="status">{lookupMessage}</p> : null}
+          {ocrProgress ? <p className="mt-3 text-sm text-slate-600" role="status">{ocrProgress}…</p> : null}
+          {lookupMessage ? <p className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3.5 py-3 text-sm leading-5 text-sky-900" role="status">{lookupMessage}</p> : null}
           {lookupCandidates.length ? (
-            <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
-              <p className="text-sm font-medium text-sky-950">Choose the matching book to fill subjects and suggested class details:</p>
+            <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/80 p-4">
+              <p className="text-sm font-semibold text-sky-950">Choose the correct match</p>
+              <p className="mt-1 text-xs text-sky-800">Selecting a result fills any additional details found online.</p>
               <ul className="mt-2 space-y-2">
                 {lookupCandidates.map((candidate, index) => (
                   <li key={`${candidate.title}-${candidate.author}-${index}`}>
                     <button
                       type="button"
                       onClick={() => applyBookMatch(candidate)}
-                      className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 text-left text-sm text-slate-800 hover:bg-sky-100"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-sm text-slate-800 shadow-sm transition hover:border-brand-500 hover:bg-brand-50"
                     >
-                      <span className="font-medium">{candidate.title}</span>
-                      {candidate.author ? <span className="block text-xs text-slate-600">{candidate.author}</span> : null}
+                      <span className="font-semibold">{candidate.title}</span>
+                      {candidate.author ? <span className="mt-0.5 block text-xs text-slate-500">{candidate.author}</span> : null}
                     </button>
                   </li>
                 ))}
@@ -354,8 +390,16 @@ export default function AddBookPage() {
           ) : null}
         </div>
 
-        <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div className="book-form rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.25)] sm:p-6">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900">Book record</h2>
+              <p className="mt-1 text-sm text-slate-500">Review the detected and catalogue-sourced details.</p>
+            </div>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">Editable fields</span>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
+            <p className="md:col-span-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Bibliographic details</p>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Title</span>
               <input value={form.title} onChange={updateField('title')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
@@ -412,6 +456,7 @@ export default function AddBookPage() {
               <span>Class / call number (suggested)</span>
               <input value={form.call_number} onChange={updateField('call_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
+            <p className="md:col-span-2 mt-2 border-t border-slate-100 pt-5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Physical copy details</p>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Accession number</span>
               <input value={form.accession_number} onChange={updateField('accession_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
@@ -448,7 +493,8 @@ export default function AddBookPage() {
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700 md:col-span-2">
               <span>Notes</span>
-              <textarea value={form.notes} onChange={updateField('notes')} rows="4" className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <textarea value={form.notes} onChange={updateField('notes')} rows="4" className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="A short book summary will be added here when available from Open Library." />
+              <span className="block text-xs font-normal leading-5 text-slate-500">The summary is editable and is only filled when the online catalogue provides one.</span>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700 md:col-span-2">
               <span>Remarks</span>
@@ -457,8 +503,8 @@ export default function AddBookPage() {
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={handleApprove} className="rounded-lg border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-200" disabled={loading}>Approve</button>
-            <button onClick={handleSave} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700" disabled={loading}>Save record</button>
+            <button onClick={handleApprove} className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm font-semibold text-brand-700 transition hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={loading}>Approve</button>
+            <button onClick={handleSave} className="rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-900 disabled:cursor-not-allowed disabled:opacity-60" disabled={loading}>Save record</button>
           </div>
         </div>
       </div>

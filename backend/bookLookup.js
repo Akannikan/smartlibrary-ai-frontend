@@ -1,6 +1,23 @@
-const OPEN_LIBRARY_SEARCH_URL = 'https://openlibrary.org/search.json';
+const OPEN_LIBRARY_BASE_URL = 'https://openlibrary.org';
+const OPEN_LIBRARY_SEARCH_URL = `${OPEN_LIBRARY_BASE_URL}/search.json`;
 const SEARCH_TIMEOUT_MS = 8000;
 const TITLE_STOP_WORDS = new Set(['a', 'an', 'and', 'for', 'in', 'of', 'the', 'to']);
+const LANGUAGE_NAMES = {
+  ara: 'Arabic',
+  chi: 'Chinese',
+  zho: 'Chinese',
+  deu: 'German',
+  eng: 'English',
+  fas: 'Persian',
+  fre: 'French',
+  fra: 'French',
+  hin: 'Hindi',
+  ita: 'Italian',
+  jpn: 'Japanese',
+  por: 'Portuguese',
+  rus: 'Russian',
+  spa: 'Spanish',
+};
 
 function normalize(value) {
   return String(value || '')
@@ -13,6 +30,46 @@ function normalize(value) {
 
 function titleTokens(value) {
   return normalize(value).split(/\s+/).filter((word) => word && !TITLE_STOP_WORDS.has(word));
+}
+
+function editDistance(left, right) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    let diagonal = previous[0];
+    previous[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const above = previous[rightIndex];
+      previous[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + 1,
+        diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+function titleTokenMatches(wanted, found) {
+  if (wanted === found) return true;
+  if (Math.min(wanted.length, found.length) < 4) return false;
+  return editDistance(wanted, found) <= Math.max(1, Math.floor(Math.min(wanted.length, found.length) * 0.2));
+}
+
+function firstValue(value) {
+  return Array.isArray(value) ? value.find((item) => item) : value;
+}
+
+function formatSummary(value) {
+  if (Array.isArray(value)) return formatSummary(value[0]);
+  const summary = typeof value === 'object' && value !== null ? value.value : value;
+  if (Array.isArray(summary)) return formatSummary(summary[0]);
+  if (typeof summary !== 'string') return '';
+
+  const clean = summary.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (clean.length <= 600) return clean;
+  const sentenceEnd = clean.slice(0, 600).search(/[.!?](?:\s|$)/);
+  return clean.slice(0, sentenceEnd > 0 ? sentenceEnd + 1 : 600).trim();
 }
 
 function inferDeweyNumber(subjects, suppliedNumbers = []) {
@@ -50,6 +107,15 @@ function normalizeDocument(document) {
   const isbns = Array.isArray(document.isbn)
     ? [...new Set(document.isbn.map((isbn) => String(isbn).replace(/[^0-9Xx]/g, '').toUpperCase()).filter(Boolean))]
     : [];
+  const isbn = isbns.find((value) => value.length === 13) || isbns[0] || '';
+  const pages = Number(document.number_of_pages_median);
+  const language = firstValue(document.language);
+  const publicationDates = Array.isArray(document.publish_date) ? document.publish_date : [];
+  const publicationYear = publicationDates
+    .map((date) => String(date).match(/\b(?:18|19|20|21)\d{2}\b/)?.[0])
+    .find(Boolean)
+    || document.first_publish_year
+    || '';
   const ddcNumber = classification.number;
   const authorCode = normalize(authors[0]?.split(/\s+/).at(-1) || '')
     .slice(0, 3)
@@ -58,23 +124,35 @@ function normalizeDocument(document) {
   return {
     title: String(document.title || '').trim(),
     author: authors.join('; '),
-    isbn: isbns,
+    subtitle: String(document.subtitle || '').trim(),
+    edition: String(document.edition_name || document.edition_statement || '').trim(),
+    publisher: String(firstValue(document.publisher) || '').trim(),
+    publication_place: String(firstValue(document.publish_place) || '').trim(),
+    publication_year: String(publicationYear),
+    isbn,
+    pages: Number.isFinite(pages) && pages > 0 ? String(pages) : '',
+    language: LANGUAGE_NAMES[String(language || '').replace(/^\/languages\//, '').toLowerCase()]
+      || String(language || '').replace(/^\/languages\//, ''),
+    physical_description: Number.isFinite(pages) && pages > 0 ? `${pages} pages` : '',
+    notes: formatSummary(document.first_sentence),
     subjects,
     ddc_number: ddcNumber,
     call_number: ddcNumber && authorCode ? `${ddcNumber} ${authorCode}` : '',
     classification_source: classification.source,
     source: 'Open Library',
+    work_key: String(document.key || ''),
   };
 }
 
 function scoreDocument(document, title, author, isbn) {
   const wantedTitle = titleTokens(title);
   const documentTitleTokens = titleTokens(document.title);
-  const foundTitle = new Set(documentTitleTokens);
-  const matchedTitleWords = wantedTitle.filter((word) => foundTitle.has(word)).length;
+  const matchedTitleWords = wantedTitle.filter((word) => (
+    documentTitleTokens.some((candidate) => titleTokenMatches(word, candidate))
+  )).length;
   const titleScore = wantedTitle.length ? matchedTitleWords / wantedTitle.length : 0;
   const titleSimilarity = wantedTitle.length && documentTitleTokens.length
-    ? matchedTitleWords / new Set([...wantedTitle, ...documentTitleTokens]).size
+    ? matchedTitleWords / (wantedTitle.length + documentTitleTokens.length - matchedTitleWords)
     : 0;
   const wantedSurname = normalize(author).split(/\s+/).at(-1);
   const wantedSurnames = new Set([
@@ -95,6 +173,7 @@ function scoreDocument(document, title, author, isbn) {
     score: titleScore + titleSimilarity * 2 + (authorMatch ? 0.35 : 0) + (isbnMatch ? 10 : 0),
     titleScore,
     titleSimilarity,
+    titleCoverage: wantedTitle.length ? matchedTitleWords / wantedTitle.length : 0,
     authorMatch,
     isbnMatch,
   };
@@ -102,7 +181,10 @@ function scoreDocument(document, title, author, isbn) {
 
 async function fetchDocuments(parameters, fetchImplementation) {
   const url = new URL(OPEN_LIBRARY_SEARCH_URL);
-  url.searchParams.set('fields', 'title,author_name,subject,dewey_decimal_class,isbn');
+  url.searchParams.set(
+    'fields',
+    'title,subtitle,edition_name,edition_statement,author_name,subject,dewey_decimal_class,isbn,publisher,publish_place,first_publish_year,publish_date,number_of_pages_median,language,first_sentence,key',
+  );
   url.searchParams.set('limit', '50');
   Object.entries(parameters).forEach(([key, value]) => url.searchParams.set(key, value));
 
@@ -118,6 +200,24 @@ async function fetchDocuments(parameters, fetchImplementation) {
 
   const result = await response.json();
   return Array.isArray(result.docs) ? result.docs : [];
+}
+
+async function fetchWorkSummary(workKey, fetchImplementation) {
+  const match = workKey.match(/^\/works\/(OL\d+W)$/);
+  if (!match) return '';
+
+  const response = await fetchImplementation(`${OPEN_LIBRARY_BASE_URL}${workKey}.json`, {
+    headers: { 'User-Agent': 'SmartLibrary-AI-MVP/1.0 (book cataloguing)' },
+    signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw Object.assign(new Error(`Open Library work details failed (HTTP ${response.status}).`), {
+      status: 502,
+    });
+  }
+
+  const work = await response.json();
+  return formatSummary(work.description);
 }
 
 async function searchBooks({ title = '', author = '', isbn = '' } = {}, fetchImplementation = fetch) {
@@ -157,26 +257,75 @@ async function searchBooks({ title = '', author = '', isbn = '' } = {}, fetchImp
     `${normalize(document.title)}|${(document.author_name || []).map(normalize).sort().join('|')}`,
     document,
   ])).values()];
-  const ranked = deduplicated
+  const rankDocuments = (books) => books
     .map((document) => scoreDocument(document, cleanTitle, cleanAuthor, usableIsbn ? cleanIsbn : ''))
     .filter((book) => book.title && (book.author || book.subjects.length))
     .sort((left, right) => right.score - left.score)
     .slice(0, 8)
-    .map(({ score, titleScore, titleSimilarity, authorMatch, isbnMatch, ...book }) => ({
+    .map(({ score, titleScore, titleSimilarity, titleCoverage, authorMatch, isbnMatch, ...book }) => ({
       ...book,
       matchScore: Math.round(score * 100),
       authorMatch,
       isbnMatch,
       titleSimilarity: Math.round(titleSimilarity * 100),
+      titleCoverage: Math.round(titleCoverage * 100),
     }));
+  let ranked = rankDocuments(deduplicated);
+  const isStrongMatch = (book) => Boolean(
+    (usableIsbn && book?.isbnMatch)
+    || (
+      usableTitle
+      && book?.titleSimilarity >= 85
+      && (book.authorMatch || !cleanAuthor)
+    )
+    || (
+      usableTitle
+      && titleTokens(cleanTitle).length >= 2
+      && book?.authorMatch
+      && book.titleCoverage >= 75
+      && book.titleSimilarity >= 60
+    ),
+  );
+
+  if (!isStrongMatch(ranked[0]) && usableTitle) {
+    const fallbackQueries = [
+      { q: `${cleanTitle} ${cleanAuthor}`.trim() },
+      ...(!cleanAuthor ? [] : [{ q: cleanTitle }]),
+    ];
+    const fallbackDocuments = (await Promise.all(
+      fallbackQueries.map((parameters) => fetchDocuments(parameters, fetchImplementation)),
+    )).flat();
+    const combined = [...new Map([...deduplicated, ...fallbackDocuments].map((document) => [
+      `${normalize(document.title)}|${(document.author_name || []).map(normalize).sort().join('|')}`,
+      document,
+    ])).values()];
+    ranked = rankDocuments(combined);
+  }
+
   const best = ranked[0];
   const strongIsbnMatch = usableIsbn && best?.isbnMatch;
   const strongTitleMatch = usableTitle && best?.titleSimilarity >= 85
     && (best.authorMatch || !cleanAuthor);
+  const OCRTitleMatch = usableTitle
+    && titleTokens(cleanTitle).length >= 2
+    && best?.authorMatch
+    && best.titleCoverage >= 75
+    && best.titleSimilarity >= 60;
+  const match = strongIsbnMatch || strongTitleMatch || OCRTitleMatch ? best : null;
+  let summaryMessage = '';
+
+  if (match && !match.notes && match.work_key) {
+    try {
+      match.notes = await fetchWorkSummary(match.work_key, fetchImplementation);
+    } catch {
+      summaryMessage = 'Open Library found the book, but its summary could not be loaded. You can still enter notes manually.';
+    }
+  }
 
   return {
-    match: strongIsbnMatch || strongTitleMatch ? best : null,
-    candidates: ranked,
+    match: match ? (({ work_key, ...book }) => book)(match) : null,
+    candidates: ranked.map(({ work_key, ...book }) => book),
+    summaryMessage,
   };
 }
 

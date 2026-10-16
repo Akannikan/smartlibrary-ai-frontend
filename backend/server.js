@@ -38,6 +38,7 @@ const bookLookupRateLimit = rateLimit({
 
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://127.0.0.1:5173',
   'https://smartlibrary-ai-frontend.vercel.app',
   process.env.FRONTEND_URL,
   ...(process.env.FRONTEND_URLS || '').split(','),
