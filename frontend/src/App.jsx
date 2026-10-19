@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import api from './services/api';
 import DashboardPage from './pages/DashboardPage';
@@ -9,6 +9,7 @@ import AccessionRegisterPage from './pages/AccessionRegisterPage';
 
 function AppShell() {
   const [health, setHealth] = useState({ status: 'loading' });
+  const location = useLocation();
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth({ status: 'error' }));
@@ -23,16 +24,16 @@ function AppShell() {
             <p className="text-xs text-stone-500">Smarter Cataloguing. Better Libraries.</p>
           </div>
           <nav className="flex flex-wrap items-center gap-3 text-sm font-medium">
-            <NavLink to="/" className={({ isActive }) => `rounded-full px-3 py-2 ${isActive ? 'bg-brand-500 text-white' : 'text-slate-700 hover:bg-stone-100'}`}>
+            <NavLink to="/" className={({ isActive }) => `rounded-full px-3 py-2 transition duration-200 hover:-translate-y-0.5 ${isActive ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20' : 'text-slate-700 hover:bg-stone-100'}`}>
               Dashboard
             </NavLink>
-            <NavLink to="/add-book" className={({ isActive }) => `rounded-full px-3 py-2 ${isActive ? 'bg-brand-500 text-white' : 'text-slate-700 hover:bg-stone-100'}`}>
+            <NavLink to="/add-book" className={({ isActive }) => `rounded-full px-3 py-2 transition duration-200 hover:-translate-y-0.5 ${isActive ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20' : 'text-slate-700 hover:bg-stone-100'}`}>
               Add Book
             </NavLink>
-            <NavLink to="/catalogue" className={({ isActive }) => `rounded-full px-3 py-2 ${isActive ? 'bg-brand-500 text-white' : 'text-slate-700 hover:bg-stone-100'}`}>
+            <NavLink to="/catalogue" className={({ isActive }) => `rounded-full px-3 py-2 transition duration-200 hover:-translate-y-0.5 ${isActive ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20' : 'text-slate-700 hover:bg-stone-100'}`}>
               Catalogue
             </NavLink>
-            <NavLink to="/accession-register" className={({ isActive }) => `rounded-full px-3 py-2 ${isActive ? 'bg-brand-500 text-white' : 'text-slate-700 hover:bg-stone-100'}`}>
+            <NavLink to="/accession-register" className={({ isActive }) => `rounded-full px-3 py-2 transition duration-200 hover:-translate-y-0.5 ${isActive ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20' : 'text-slate-700 hover:bg-stone-100'}`}>
               Accession Register
             </NavLink>
           </nav>
@@ -45,14 +46,16 @@ function AppShell() {
             Backend connection is unavailable. Start the Express server and ensure the backend environment is configured.
           </div>
         ) : null}
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/add-book" element={<AddBookPage />} />
-          <Route path="/catalogue" element={<CataloguePage />} />
-          <Route path="/books/:id" element={<BookDetailPage />} />
-          <Route path="/accession-register" element={<AccessionRegisterPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <div key={location.pathname} className="route-enter">
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/add-book" element={<AddBookPage />} />
+            <Route path="/catalogue" element={<CataloguePage />} />
+            <Route path="/books/:id" element={<BookDetailPage />} />
+            <Route path="/accession-register" element={<AccessionRegisterPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );

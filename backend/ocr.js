@@ -4,6 +4,8 @@ const englishModel = require('@tesseract.js-data/eng');
 
 const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
 const MAX_OCR_IMAGE_PIXELS = 40_000_000;
+const MIN_OCR_CONFIDENCE = 45;
+const MIN_OCR_WORD_COUNT = 4;
 let workerPromise;
 let recognitionQueue = Promise.resolve();
 
@@ -74,22 +76,12 @@ function getOCRWorker() {
 }
 
 async function runRecognition(image) {
-  const [greyImage, greenImage] = await Promise.all([
-    prepareImage(image, 'red'),
-    prepareImage(image, 'green'),
-  ]);
+  const greyImage = await prepareImage(image, 'red');
   const worker = await getOCRWorker();
-  const passes = [
-    { image: greyImage, mode: PSM.AUTO },
-    { image: greyImage, mode: PSM.SINGLE_BLOCK },
-    { image: greyImage, mode: PSM.SPARSE_TEXT },
-    { image: greenImage, mode: PSM.SPARSE_TEXT },
-  ];
   const candidates = [];
-
-  for (const pass of passes) {
-    await worker.setParameters({ tessedit_pageseg_mode: pass.mode });
-    const result = await worker.recognize(pass.image);
+  const recognize = async (source, mode) => {
+    await worker.setParameters({ tessedit_pageseg_mode: mode });
+    const result = await worker.recognize(source);
     const text = result.data.text.trim();
     const words = text.match(/[a-z]+(?:['’-][a-z]+)*/gi) || [];
     const readableWordRatio = words.length
@@ -100,7 +92,7 @@ async function runRecognition(image) {
       : 1;
     const confidence = Number.isFinite(result.data.confidence) ? result.data.confidence : 0;
 
-    candidates.push({
+    const candidate = {
       text,
       confidence,
       wordCount: words.length,
@@ -108,7 +100,29 @@ async function runRecognition(image) {
         + readableWordRatio * 20
         + Math.min(words.length, 12) * 4
         - shortWordRatio * 15,
-    });
+    };
+    candidates.push(candidate);
+    return candidate;
+  };
+
+  const isReadable = (candidate) => candidate.confidence >= MIN_OCR_CONFIDENCE
+    && candidate.wordCount >= MIN_OCR_WORD_COUNT;
+  const primary = await recognize(greyImage, PSM.AUTO);
+  if (isReadable(primary)) {
+    return {
+      text: primary.text,
+      confidence: Math.round(primary.confidence),
+      wordCount: primary.wordCount,
+    };
+  }
+
+  const block = await recognize(greyImage, PSM.SINGLE_BLOCK);
+  if (!isReadable(block)) {
+    const sparse = await recognize(greyImage, PSM.SPARSE_TEXT);
+    if (!isReadable(sparse)) {
+      const greenImage = await prepareImage(image, 'green');
+      await recognize(greenImage, PSM.SPARSE_TEXT);
+    }
   }
 
   const best = candidates.reduce((selected, candidate) => (

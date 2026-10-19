@@ -574,7 +574,7 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
       console.error('Image OCR failed:', error);
       return res.status(503).json({
         success: false,
-        message: 'The built-in OCR engine is temporarily unavailable. Please try again or enter the text manually.',
+        message: 'The built-in OCR engine is temporarily unavailable. Please try the image again in a moment.',
         fields: {},
       });
     }
@@ -583,9 +583,7 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
   if (!suppliedText) {
     return res.status(400).json({
       success: false,
-      message: payload.image
-        ? 'No text was detected. Try a sharper, well-lit image of the title page or enter the details manually.'
-        : 'No OCR text was provided. Extract text from an image or enter details manually.',
+      message: 'No text was detected. Try a sharper, well-lit photo of the book title page.',
       fields: {},
     });
   }
@@ -595,7 +593,7 @@ app.post('/api/cataloguing/extract', imageOcrRateLimit, async (req, res) => {
     message: payload.image && (
       ocrConfidence < MIN_OCR_CONFIDENCE || ocrWordCount < MIN_OCR_WORD_COUNT
     )
-      ? 'Some text was read, but the image is too unclear for reliable automatic fields. Try a clear title page or enter the details manually.'
+      ? 'Some text was read, but the image is too unclear for reliable automatic fields. Try a clear, straight-on photo of the title page.'
       : payload.image
         ? 'Text extracted with the built-in English OCR engine. Review the detected details before saving.'
         : 'Text extracted. Review the detected details before saving.',

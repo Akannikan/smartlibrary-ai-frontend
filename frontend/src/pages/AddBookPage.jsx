@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '../services/api';
 import { extractMetadataFromText } from '../services/cataloguing';
 
@@ -6,7 +6,10 @@ const MAX_OCR_IMAGE_BYTES = 7 * 1024 * 1024;
 const MAX_OCR_REQUEST_IMAGE_BYTES = 3 * 1024 * 1024;
 const MIN_OCR_CONFIDENCE = 45;
 const MIN_OCR_WORD_COUNT = 4;
-const inputClassName = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-100';
+
+function nextPaint() {
+  return new Promise((resolve) => requestAnimationFrame(resolve));
+}
 
 function loadImage(file) {
   return new Promise((resolve, reject) => {
@@ -90,7 +93,6 @@ const emptyForm = {
   condition: '',
   status: 'available',
   remarks: '',
-  rawText: '',
 };
 
 export default function AddBookPage() {
@@ -103,24 +105,60 @@ export default function AddBookPage() {
   const [ocrProgress, setOcrProgress] = useState(null);
   const [lookupCandidates, setLookupCandidates] = useState([]);
   const [lookupMessage, setLookupMessage] = useState('');
-  const [lastOCRText, setLastOCRText] = useState('');
   const [lastOCRFields, setLastOCRFields] = useState({});
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const cameraStreamRef = useRef(null);
+  const videoRef = useRef(null);
+  const uploadInputRef = useRef(null);
+  const previewUrlRef = useRef('');
 
   const updateField = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
 
-  const handleImageUpload = (event) => {
-    const file = event.target.files?.[0];
+  const stopCamera = () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraOpen(false);
+    setCameraReady(false);
+    setCameraLoading(false);
+  };
+
+  useEffect(() => {
+    if (!cameraOpen || !cameraStreamRef.current || !videoRef.current) return undefined;
+
+    const video = videoRef.current;
+    video.srcObject = cameraStreamRef.current;
+    video.play().then(() => setCameraReady(true)).catch(() => {
+      setError('The camera preview could not start. Check camera access and try again.');
+      stopCamera();
+    });
+    return () => {
+      video.pause();
+      video.srcObject = null;
+    };
+  }, [cameraOpen]);
+
+  useEffect(() => () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+  }, []);
+
+  const handleImageFile = (file) => {
     if (!file) return;
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    const previewUrl = URL.createObjectURL(file);
+    previewUrlRef.current = previewUrl;
     setImageFile(file);
+    setImagePreview(previewUrl);
     setError('');
     setSuccess('');
     setLookupCandidates([]);
     setLookupMessage('');
-    setLastOCRText('');
     setForm((current) => {
-      const next = { ...current, rawText: '' };
+      const next = { ...current };
       Object.entries(lastOCRFields).forEach(([field, detectedValue]) => {
         const currentValue = current[field];
         const previousDetectedValue = Array.isArray(detectedValue)
@@ -131,12 +169,68 @@ export default function AddBookPage() {
       return next;
     });
     setLastOCRFields({});
-    const reader = new FileReader();
-    reader.onload = () => setImagePreview(reader.result);
-    reader.readAsDataURL(file);
+  };
+
+  const handleImageUpload = (event) => {
+    handleImageFile(event.target.files?.[0]);
+    event.target.value = '';
+  };
+
+  const handleOpenCamera = async () => {
+    setError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Camera capture is not available in this browser. Choose an image file instead.');
+      return;
+    }
+
+    setCameraLoading(true);
+    try {
+      cameraStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' } },
+      });
+      setCameraOpen(true);
+    } catch (cameraError) {
+      const cameraMessage = cameraError.name === 'NotAllowedError' || cameraError.name === 'SecurityError'
+        ? 'Camera access was blocked. Allow camera permission in your browser settings or choose an image file.'
+        : cameraError.name === 'NotFoundError'
+          ? 'No camera was found on this device. Choose an image file instead.'
+          : 'The camera could not be opened. Check that it is connected and not being used by another app.';
+      setError(cameraMessage);
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+
+  const handleCapturePhoto = async () => {
+    const video = videoRef.current;
+    if (!video?.videoWidth || !video.videoHeight) {
+      setError('The camera is not ready yet. Wait for the preview, then take the photo.');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      setError('This browser could not capture the camera image. Choose an image file instead.');
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    try {
+      const photo = await canvasToBlob(canvas, 0.9);
+      handleImageFile(new File([photo], `book-photo-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+      stopCamera();
+    } catch (captureError) {
+      setError(captureError.message || 'The photo could not be captured.');
+    }
   };
 
   const handleRemoveImage = () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = '';
     setImagePreview('');
     setImageFile(null);
   };
@@ -180,8 +274,8 @@ export default function AddBookPage() {
   };
 
   const handleExtract = async () => {
-    if (!imageFile && !form.rawText.trim()) {
-      setError('Upload an image or enter OCR text before extracting metadata.');
+    if (!imageFile) {
+      setError('Choose an image or take a photo of the book before extracting details.');
       return;
     }
 
@@ -193,31 +287,21 @@ export default function AddBookPage() {
     setOcrProgress(null);
 
     try {
-      const rawTextBeforeExtraction = form.rawText.trim();
-      const manualText = imageFile && rawTextBeforeExtraction === lastOCRText.trim()
-        ? ''
-        : rawTextBeforeExtraction;
-      let rawText = rawTextBeforeExtraction;
-      let ocrConfidence;
-      let ocrWordCount;
-
-      if (imageFile) {
-        if (imageFile.size > MAX_OCR_IMAGE_BYTES) {
-          throw new Error('The image must be 7 MB or smaller for OCR.');
-        }
-
-        setOcrProgress('Sending image to the library server');
-        const image = await prepareOCRImage(imageFile);
-        setOcrProgress('Reading text with the built-in OCR engine');
-        const result = await api.extractText({ image, rawText: manualText });
-        rawText = result.extractedText || '';
-        ocrConfidence = result.ocrConfidence;
-        ocrWordCount = result.ocrWordCount;
-        setLastOCRText(rawText);
+      if (imageFile.size > MAX_OCR_IMAGE_BYTES) {
+        throw new Error('The image must be 7 MB or smaller for OCR.');
       }
 
+      setOcrProgress('Preparing your image');
+      await nextPaint();
+      const image = await prepareOCRImage(imageFile);
+      setOcrProgress('Reading the book cover');
+      await nextPaint();
+      const result = await api.extractText({ image });
+      const rawText = result.extractedText || '';
+      const ocrConfidence = result.ocrConfidence;
+      const ocrWordCount = result.ocrWordCount;
       if (!rawText) {
-        throw new Error('No text was detected. Try a clearer image or enter the details manually.');
+        throw new Error('No text was detected. Try a sharper, well-lit photo of the title page.');
       }
 
       const fields = extractMetadataFromText(rawText);
@@ -241,12 +325,12 @@ export default function AddBookPage() {
       const hasLookupTerms = Boolean(detected.title || detected.author);
       const reliableOCR = Number(ocrConfidence) >= MIN_OCR_CONFIDENCE
         && Number(ocrWordCount) >= MIN_OCR_WORD_COUNT;
-      const recognisedFields = imageFile && !manualText && !reliableOCR
+      const recognisedFields = !reliableOCR
         ? { ...detected, title: '', subjects: '', ddc_number: '', call_number: '' }
         : detected;
       setLastOCRFields(recognisedFields);
       setForm((current) => {
-        const next = { ...current, rawText };
+        const next = { ...current };
         Object.entries(recognisedFields).forEach(([field, value]) => {
           if (value && (!current[field] || current[field] === lastOCRFields[field])) {
             next[field] = value;
@@ -255,7 +339,8 @@ export default function AddBookPage() {
         return next;
       });
       if (hasLookupTerms) {
-        setOcrProgress('Searching the public book catalogue for subjects and class details');
+        setOcrProgress('Looking for this book online');
+        await nextPaint();
         try {
           const lookup = await api.lookupBook({
             title: fields.title,
@@ -271,13 +356,11 @@ export default function AddBookPage() {
         } catch (lookupError) {
           setError(`Title and author were extracted, but catalogue lookup failed: ${lookupError.message}`);
         }
-      } else if (imageFile && !reliableOCR) {
-        setLookupMessage('OCR could not reliably read a title or author. Try a clear, straight photo or enter either field and extract again.');
+      } else if (!reliableOCR) {
+        setLookupMessage('The cover text was difficult to read. Try a clearer, straight-on photo of the title page.');
       }
       setSuccess(
-        imageFile
-          ? 'Image processed. Detected and online catalogue details have been filled in where available. Review them before saving.'
-          : 'Text processed. Detected and online catalogue details have been filled in where available. Review them before saving.',
+        'Book image processed. Detected and online catalogue details have been filled in where available. Review them before saving.',
       );
     } catch (err) {
       setError(err.message || 'Unable to extract text.');
@@ -315,8 +398,10 @@ export default function AddBookPage() {
       setForm(emptyForm);
       setLookupCandidates([]);
       setLookupMessage('');
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = '';
       setImagePreview('');
-      setLastOCRText('');
+      setImageFile(null);
       setLastOCRFields({});
     } catch (err) {
       setError(err.message || 'Unable to save the record.');
@@ -327,7 +412,7 @@ export default function AddBookPage() {
 
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-900 via-brand-700 to-brand-500 px-6 py-7 text-white shadow-lg shadow-brand-900/10 sm:px-8">
+      <div className="animate-fade-up overflow-hidden rounded-3xl bg-gradient-to-br from-brand-900 via-brand-700 to-brand-500 px-6 py-7 text-white shadow-lg shadow-brand-900/10 sm:px-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-100">Smart cataloguing</p>
@@ -342,31 +427,92 @@ export default function AddBookPage() {
       {success ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-sm" role="status">{success}</div> : null}
 
       <div className="grid items-start gap-6 xl:grid-cols-[0.78fr_1.55fr]">
-        <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.25)] sm:p-6">
+        <div className="animate-fade-up rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.25)] sm:p-6">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-slate-900">Start with a book image</h2>
             <p className="mt-1 text-sm text-slate-500">A clear cover or title page gives the best results.</p>
           </div>
           <div className="mt-4">
-            <label className="flex h-52 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 text-center text-sm text-slate-500 transition hover:border-brand-500 hover:bg-brand-50">
-              <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleImageUpload} />
-              {imagePreview ? <img src={imagePreview} alt="Book cover preview" className="h-full w-full object-contain" /> : <span className="px-6 leading-6"><span className="block text-base font-semibold text-slate-700">Choose an image to upload</span><span className="mt-1 block text-xs text-slate-500">PNG, JPG or WebP · up to 7 MB</span></span>}
-            </label>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              onChange={handleImageUpload}
+              aria-label="Choose a book image"
+            />
+            <button
+              type="button"
+              onClick={() => uploadInputRef.current?.click()}
+              className="group flex h-52 w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 text-center text-sm text-slate-500 transition duration-300 hover:-translate-y-0.5 hover:border-brand-500 hover:bg-brand-50 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-brand-100"
+            >
+              {imagePreview
+                ? <img src={imagePreview} alt="Book cover preview" className="h-full w-full object-contain transition duration-500 group-hover:scale-[1.02]" />
+                : <span className="px-6 leading-6">
+                  <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 transition duration-300 group-hover:scale-110 group-hover:bg-brand-100" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6" stroke="currentColor" strokeWidth="1.7">
+                      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" />
+                      <circle cx="9" cy="9" r="1.5" />
+                      <path d="m5 17 4-4 3 3 2-2 5 5" />
+                    </svg>
+                  </span>
+                  <span className="block text-base font-semibold text-slate-700">Choose an image to upload</span>
+                  <span className="mt-1 block text-xs text-slate-500">PNG, JPG or WebP · up to 7 MB</span>
+                </span>}
+            </button>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => uploadInputRef.current?.click()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-800 focus:outline-none focus:ring-4 focus:ring-brand-100"
+              >
+                <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M4 16.5v2A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-2M12 4v11m0-11 4 4m-4-4L8 8" />
+                </svg>
+                Upload image
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenCamera}
+                disabled={cameraLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-700 px-3 py-2.5 text-sm font-semibold text-white transition duration-200 hover:-translate-y-0.5 hover:bg-brand-900 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-brand-100 disabled:cursor-wait disabled:opacity-70"
+              >
+                {cameraLoading
+                  ? <span className="loading-spinner h-4 w-4 border-2 border-white/40 border-t-white" aria-hidden="true" />
+                  : <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                    <path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.2-2h6.6l1.2 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5v-9Z" />
+                    <circle cx="12" cy="13" r="3.5" />
+                  </svg>}
+                {cameraLoading ? 'Opening camera…' : 'Take a photo'}
+              </button>
+            </div>
             {imagePreview ? (
-              <button type="button" onClick={handleRemoveImage} className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+              <button type="button" onClick={handleRemoveImage} className="mt-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-700">
                 Remove image
               </button>
             ) : null}
           </div>
-          <div className="mt-4">
-            <label className="block text-sm font-semibold text-slate-700">Extracted text</label>
-            <textarea value={form.rawText} onChange={updateField('rawText')} rows="7" className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-100" placeholder="Extracted text will appear here. You can also paste text manually." />
-            <p className="mt-2 text-xs leading-5 text-slate-500">Images are processed with the built-in English OCR engine. The image is not stored or sent to Open Library. Online matches can fill in bibliographic details and a book summary when available; unavailable details can be entered manually.</p>
+          <div className="mt-4 rounded-xl bg-slate-50 px-3.5 py-3">
+            <p className="text-xs leading-5 text-slate-600">We’ll read the cover or title page automatically, then look up available details online. Your image is not stored in the public catalogue.</p>
           </div>
           <div className="mt-5">
-            <button onClick={handleExtract} className="w-full rounded-xl bg-brand-700 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-900 focus:outline-none focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={loading}>{loading ? `${ocrProgress || 'Working'}…` : 'Extract book details'}</button>
+            <button onClick={handleExtract} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-3 text-sm font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-brand-900 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={loading || !imageFile}>
+              {loading ? <span className="loading-spinner h-4 w-4 border-2 border-white/40 border-t-white" aria-hidden="true" /> : null}
+              {loading ? ocrProgress || 'Working…' : 'Extract book details'}
+            </button>
           </div>
-          {ocrProgress ? <p className="mt-3 text-sm text-slate-600" role="status">{ocrProgress}…</p> : null}
+          {ocrProgress ? (
+            <div className="mt-4 flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/70 px-3.5 py-3 animate-fade-up" role="status" aria-live="polite">
+              <span className="loading-spinner h-5 w-5 shrink-0 border-2 border-brand-200 border-t-brand-700" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-brand-900">{ocrProgress}</p>
+                <p className="mt-0.5 text-xs text-brand-700">This usually takes a few moments.</p>
+                <div className="loading-track mt-2 h-1 overflow-hidden rounded-full bg-brand-100">
+                  <div className="loading-bar h-full rounded-full bg-brand-600" />
+                </div>
+              </div>
+            </div>
+          ) : null}
           {lookupMessage ? <p className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3.5 py-3 text-sm leading-5 text-sky-900" role="status">{lookupMessage}</p> : null}
           {lookupCandidates.length ? (
             <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/80 p-4">
@@ -390,7 +536,7 @@ export default function AddBookPage() {
           ) : null}
         </div>
 
-        <div className="book-form rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.25)] sm:p-6">
+        <div className="book-form animate-fade-up rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.25)] sm:p-6">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-slate-900">Book record</h2>
@@ -508,6 +654,37 @@ export default function AddBookPage() {
           </div>
         </div>
       </div>
+
+      {cameraOpen ? (
+        <div className="camera-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) stopCamera();
+        }}>
+          <section className="camera-dialog w-full max-w-2xl overflow-hidden rounded-3xl border border-white/20 bg-slate-950 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+            <div className="flex items-start justify-between gap-4 px-5 py-4 text-white sm:px-6">
+              <div>
+                <h2 id="camera-title" className="text-lg font-semibold">Take a book photo</h2>
+                <p className="mt-1 text-sm text-slate-300">Frame the cover or title page, then capture.</p>
+              </div>
+              <button type="button" onClick={stopCamera} className="rounded-full p-2 text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/60" aria-label="Close camera">
+                <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+            <div className="camera-preview relative mx-3 overflow-hidden rounded-2xl bg-black sm:mx-5">
+              <video ref={videoRef} className="aspect-[4/3] w-full object-cover" playsInline muted aria-label="Live camera preview" />
+              {!cameraReady ? <div className="absolute inset-0 flex items-center justify-center text-sm text-white"><span className="loading-spinner mr-3 h-5 w-5 border-2 border-white/40 border-t-white" />Starting camera…</div> : null}
+            </div>
+            <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
+              <p className="text-xs leading-5 text-slate-400">For best results, use good lighting and keep the text in focus.</p>
+              <button type="button" onClick={handleCapturePhoto} disabled={!cameraReady} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:scale-[1.03] hover:bg-brand-50 focus:outline-none focus:ring-4 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-50">
+                <span className="h-3 w-3 rounded-full bg-red-500 ring-4 ring-red-500/20" aria-hidden="true" />
+                Capture photo
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
