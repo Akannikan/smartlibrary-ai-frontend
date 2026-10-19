@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../services/api';
 import { extractMetadataFromText } from '../services/cataloguing';
 
@@ -660,7 +661,7 @@ export default function AddBookPage() {
         </div>
       </div>
 
-      {cameraOpen ? (
+      {cameraOpen ? createPortal(
         <div
           className="camera-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-2 backdrop-blur-sm sm:p-4"
           onMouseDown={(event) => {
@@ -694,7 +695,8 @@ export default function AddBookPage() {
               </button>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
