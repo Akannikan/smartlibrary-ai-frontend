@@ -112,6 +112,8 @@ export default function AddBookPage() {
   const cameraStreamRef = useRef(null);
   const videoRef = useRef(null);
   const uploadInputRef = useRef(null);
+  const cameraButtonRef = useRef(null);
+  const closeCameraButtonRef = useRef(null);
   const previewUrlRef = useRef('');
 
   const updateField = (field) => (event) => {
@@ -124,6 +126,7 @@ export default function AddBookPage() {
     setCameraOpen(false);
     setCameraReady(false);
     setCameraLoading(false);
+    cameraButtonRef.current?.focus();
   };
 
   useEffect(() => {
@@ -131,6 +134,7 @@ export default function AddBookPage() {
 
     const video = videoRef.current;
     video.srcObject = cameraStreamRef.current;
+    closeCameraButtonRef.current?.focus();
     video.play().then(() => setCameraReady(true)).catch(() => {
       setError('The camera preview could not start. Check camera access and try again.');
       stopCamera();
@@ -472,6 +476,7 @@ export default function AddBookPage() {
                 Upload image
               </button>
               <button
+                ref={cameraButtonRef}
                 type="button"
                 onClick={handleOpenCamera}
                 disabled={cameraLoading}
@@ -656,28 +661,34 @@ export default function AddBookPage() {
       </div>
 
       {cameraOpen ? (
-        <div className="camera-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) stopCamera();
-        }}>
-          <section className="camera-dialog w-full max-w-2xl overflow-hidden rounded-3xl border border-white/20 bg-slate-950 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="camera-title">
-            <div className="flex items-start justify-between gap-4 px-5 py-4 text-white sm:px-6">
+        <div
+          className="camera-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-2 backdrop-blur-sm sm:p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) stopCamera();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') stopCamera();
+          }}
+        >
+          <section className="camera-dialog flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-slate-950 shadow-2xl sm:rounded-3xl" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+            <div className="camera-header flex shrink-0 items-start justify-between gap-3 px-4 py-3 text-white sm:gap-4 sm:px-6 sm:py-4">
               <div>
                 <h2 id="camera-title" className="text-lg font-semibold">Take a book photo</h2>
                 <p className="mt-1 text-sm text-slate-300">Frame the cover or title page, then capture.</p>
               </div>
-              <button type="button" onClick={stopCamera} className="rounded-full p-2 text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/60" aria-label="Close camera">
+              <button ref={closeCameraButtonRef} type="button" onClick={stopCamera} className="rounded-full p-2 text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/60" aria-label="Close camera">
                 <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path d="m6 6 12 12M18 6 6 18" />
                 </svg>
               </button>
             </div>
-            <div className="camera-preview relative mx-3 overflow-hidden rounded-2xl bg-black sm:mx-5">
+            <div className="camera-preview relative mx-2 min-h-0 overflow-hidden rounded-2xl bg-black sm:mx-5">
               <video ref={videoRef} className="aspect-[4/3] w-full object-cover" playsInline muted aria-label="Live camera preview" />
               {!cameraReady ? <div className="absolute inset-0 flex items-center justify-center text-sm text-white"><span className="loading-spinner mr-3 h-5 w-5 border-2 border-white/40 border-t-white" />Starting camera…</div> : null}
             </div>
-            <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
-              <p className="text-xs leading-5 text-slate-400">For best results, use good lighting and keep the text in focus.</p>
-              <button type="button" onClick={handleCapturePhoto} disabled={!cameraReady} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:scale-[1.03] hover:bg-brand-50 focus:outline-none focus:ring-4 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-50">
+            <div className="camera-footer flex shrink-0 flex-col items-stretch gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4">
+              <p className="text-center text-xs leading-5 text-slate-400 sm:text-left">For best results, use good lighting and keep the text in focus.</p>
+              <button type="button" onClick={handleCapturePhoto} disabled={!cameraReady} className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:scale-[1.03] hover:bg-brand-50 focus:outline-none focus:ring-4 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:py-2.5">
                 <span className="h-3 w-3 rounded-full bg-red-500 ring-4 ring-red-500/20" aria-hidden="true" />
                 Capture photo
               </button>

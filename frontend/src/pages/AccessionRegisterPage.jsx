@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
 
+function formatAccessionDate(value) {
+  if (!value) return '-';
+  const dateOnly = String(value).match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return dateOnly || value;
+}
+
 export default function AccessionRegisterPage() {
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
@@ -68,7 +74,7 @@ export default function AccessionRegisterPage() {
               {filteredEntries.map((entry) => (
                 <tr key={entry.id} className="border-t border-stone-200">
                   <td className="px-4 py-3 font-medium text-slate-800">{entry.accession_number}</td>
-                  <td className="px-4 py-3">{entry.accession_date || '-'}</td>
+                  <td className="px-4 py-3">{formatAccessionDate(entry.accession_date)}</td>
                   <td className="px-4 py-3">{entry.author || '-'}</td>
                   <td className="px-4 py-3">{entry.title || '-'}</td>
                   <td className="px-4 py-3">{entry.source_of_acquisition || '-'}</td>

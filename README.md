@@ -12,7 +12,7 @@ Browser (React + Vite)
 ```
 
 - **Dashboard** (`/`) shows the number of titles and copies plus recent additions.
-- **Add Book** (`/add-book`) uses English OCR and searches Open Library by ISBN, title and author. Confident online matches automatically fill available bibliographic details and a short book summary; staff review the suggestions and enter copy-specific details such as accession number themselves.
+- **Add Book** (`/add-book`) captures or uploads a book image, uses English OCR, and searches Open Library by ISBN, title and author. Confident online matches automatically fill available bibliographic details and a short book summary; staff review the suggestions and enter copy-specific details such as accession number themselves.
 - **Catalogue** (`/catalogue`) searches for and lists records and copies.
 - **Book Details** (`/books/:id`) shows and edits a record.
 - **Accession Register** (`/accession-register`) lists physical copies and provides CSV and Excel exports.

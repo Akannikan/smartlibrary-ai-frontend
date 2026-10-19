@@ -77,11 +77,25 @@ table {
 }
 
 .camera-backdrop {
+  overflow-y: auto;
   animation: fade-in 180ms ease-out both;
 }
 
 .camera-dialog {
+  max-height: calc(100vh - 1rem);
+  max-height: calc(100dvh - 1rem);
   animation: dialog-enter 260ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.camera-preview {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-preview video {
+  max-height: 100%;
 }
 
 @keyframes route-enter {
@@ -129,6 +143,31 @@ table {
 @keyframes loading-slide {
   from { transform: translateX(-110%); }
   to { transform: translateX(290%); }
+}
+
+@media (max-width: 639px) {
+  .camera-backdrop {
+    align-items: center;
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+  }
+
+  .camera-dialog {
+    width: 100%;
+    max-height: calc(100vh - 1rem);
+    max-height: calc(100dvh - max(env(safe-area-inset-top), 0.5rem) - max(env(safe-area-inset-bottom), 0.5rem));
+  }
+
+  .camera-preview video {
+    width: 100%;
+    height: auto;
+    max-height: calc(100vh - 13rem);
+    max-height: calc(100dvh - 13rem);
+    aspect-ratio: auto;
+    object-fit: contain;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
