@@ -170,6 +170,26 @@ table {
   }
 }
 
+@media (max-height: 600px) {
+  .camera-dialog {
+    max-height: calc(100vh - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .camera-preview {
+    min-height: 0;
+  }
+
+  .camera-preview video {
+    width: 100%;
+    height: auto;
+    max-height: calc(100vh - 13rem);
+    max-height: calc(100dvh - 13rem);
+    aspect-ratio: auto;
+    object-fit: contain;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
