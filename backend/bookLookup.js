@@ -139,7 +139,9 @@ function normalizeDocument(document) {
     ddc_number: ddcNumber,
     call_number: ddcNumber && authorCode ? `${ddcNumber} ${authorCode}` : '',
     classification_source: classification.source,
-    source: 'Open Library',
+    source: document.source || 'Open Library',
+    source_url: document.source_url || '',
+    source_record_id: document.source_record_id || '',
     work_key: String(document.key || ''),
   };
 }

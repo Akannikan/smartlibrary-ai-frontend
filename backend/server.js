@@ -222,10 +222,11 @@ async function fetchDashboardStats() {
       totalTitles: 0,
       totalCopies: 0,
       recentAdditions: [],
+      incompleteMetadata: 0,
     };
   }
 
-  const [titlesResult, copiesResult, recentResult] = await Promise.all([
+  const [titlesResult, copiesResult, recentResult, incompleteResult] = await Promise.all([
     query('SELECT COUNT(*)::int AS count FROM bibliographic_records'),
     query('SELECT COUNT(*)::int AS count FROM physical_copies'),
     query(`
@@ -235,12 +236,21 @@ async function fetchDashboardStats() {
       ORDER BY pc.created_at DESC
       LIMIT 5
     `),
+    query(`
+      SELECT COUNT(*)::int AS count
+      FROM bibliographic_records
+      WHERE title IS NULL OR title = ''
+         OR author IS NULL OR author = ''
+         OR publication_year IS NULL OR publication_year = ''
+         OR isbn IS NULL OR isbn = ''
+    `),
   ]);
 
   return {
     totalTitles: Number(titlesResult.rows[0].count || 0),
     totalCopies: Number(copiesResult.rows[0].count || 0),
     recentAdditions: recentResult.rows,
+    incompleteMetadata: Number(incompleteResult.rows[0].count || 0),
   };
 }
 
