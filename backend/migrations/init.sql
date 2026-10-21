@@ -13,7 +13,12 @@ CREATE TABLE IF NOT EXISTS bibliographic_records (
   physical_description TEXT,
   subjects JSONB NOT NULL DEFAULT '[]'::jsonb,
   ddc_number TEXT,
+  ddc_justification TEXT,
+  ddc_verification_status TEXT NOT NULL DEFAULT 'pending',
   call_number TEXT,
+  bibliographic_source TEXT,
+  source_record_id TEXT,
+  source_url TEXT,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -32,6 +37,13 @@ CREATE TABLE IF NOT EXISTS physical_copies (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE bibliographic_records
+  ADD COLUMN IF NOT EXISTS ddc_justification TEXT,
+  ADD COLUMN IF NOT EXISTS ddc_verification_status TEXT NOT NULL DEFAULT 'pending',
+  ADD COLUMN IF NOT EXISTS bibliographic_source TEXT,
+  ADD COLUMN IF NOT EXISTS source_record_id TEXT,
+  ADD COLUMN IF NOT EXISTS source_url TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_bibliographic_records_title ON bibliographic_records (title);
 CREATE INDEX IF NOT EXISTS idx_bibliographic_records_author ON bibliographic_records (author);

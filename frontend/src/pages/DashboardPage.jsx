@@ -3,16 +3,16 @@ import { Link } from 'react-router-dom';
 import api from '../services/api';
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState({ totalTitles: 0, totalCopies: 0, recentAdditions: [] });
+  const [stats, setStats] = useState({ totalTitles: 0, totalCopies: 0, recentAdditions: [], incompleteMetadata: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api
       .getStats()
       .then((result) => {
-        setStats(result.data || { totalTitles: 0, totalCopies: 0, recentAdditions: [] });
+        setStats(result.data || { totalTitles: 0, totalCopies: 0, recentAdditions: [], incompleteMetadata: 0 });
       })
-      .catch(() => setStats({ totalTitles: 0, totalCopies: 0, recentAdditions: [] }))
+      .catch(() => setStats({ totalTitles: 0, totalCopies: 0, recentAdditions: [], incompleteMetadata: 0 }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -27,7 +27,7 @@ export default function DashboardPage() {
         <div className="rounded-2xl border border-stone-200 bg-white p-6 text-sm text-slate-500">Loading dashboard data…</div>
       ) : (
         <>
-          <section className="grid gap-4 md:grid-cols-3">
+          <section className="grid gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
               <p className="text-sm text-slate-500">Total bibliographic titles</p>
               <p className="mt-3 text-3xl font-bold text-brand-700">{stats.totalTitles}</p>
@@ -39,6 +39,10 @@ export default function DashboardPage() {
             <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
               <p className="text-sm text-slate-500">Recent additions</p>
               <p className="mt-3 text-3xl font-bold text-brand-700">{stats.recentAdditions.length}</p>
+            </div>
+            <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">Incomplete metadata</p>
+              <p className="mt-3 text-3xl font-bold text-brand-700">{stats.incompleteMetadata}</p>
             </div>
           </section>
 

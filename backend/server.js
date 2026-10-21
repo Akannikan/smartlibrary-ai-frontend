@@ -82,6 +82,11 @@ function sanitizeText(value) {
   return String(value).trim();
 }
 
+function normalizeVerificationStatus(value) {
+  const status = sanitizeText(value || '').toLowerCase();
+  return ['pending', 'suggested', 'verified', 'rejected'].includes(status) ? status : 'pending';
+}
+
 function extractMetadataFromText(rawText = '') {
   const text = rawText || '';
   const lineList = text.split(/\r?\n|\s{2,}/).map((line) => line.trim()).filter(Boolean);
@@ -308,6 +313,38 @@ app.get('/api/dashboard/stats', async (req, res) => {
   res.status(response.status).json(response);
 });
 
+app.get('/api/search/books', async (req, res) => {
+  const title = sanitizeText(req.query.title || req.query.q || '').slice(0, 160);
+  const author = sanitizeText(req.query.author || '').slice(0, 120);
+  const isbn = sanitizeText(req.query.isbn || '').slice(0, 24);
+
+  if (!title && !author && !isbn) {
+    return res.status(400).json({
+      success: false,
+      message: 'A title, author, or ISBN is required to search the catalogue.',
+    });
+  }
+
+  try {
+    const result = await searchBooks({ title, author, isbn });
+    return res.status(200).json({
+      success: true,
+      ...result,
+      message: result.match
+        ? 'A likely catalogue match was found. Review the suggested class number and subjects.'
+        : result.candidates.length
+          ? 'Choose the matching book from the search results to fill its author, subjects, and suggested class details.'
+          : 'No catalogue match was found. Enter the title, author, subject, and class details manually.',
+    });
+  } catch (error) {
+    console.error('Public book catalogue lookup failed:', error);
+    return res.status(error.status || 502).json({
+      success: false,
+      message: 'The public book catalogue is temporarily unavailable. Please retry or enter the details manually.',
+    });
+  }
+});
+
 app.get('/api/books', async (req, res) => {
   const response = await withDatabaseCheck(async () => {
     const search = sanitizeText(req.query.q || '');
@@ -358,8 +395,9 @@ app.post('/api/books', async (req, res) => {
       const bibliographicInsert = await client.query(
         `INSERT INTO bibliographic_records (
           title, subtitle, author, publisher, publication_place, publication_year, edition,
-          isbn, pages, language, physical_description, subjects, ddc_number, call_number, notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+          isbn, pages, language, physical_description, subjects, ddc_number, ddc_justification,
+          ddc_verification_status, call_number, bibliographic_source, source_record_id, source_url, notes
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
         [
           title,
           sanitizeText(body.subtitle || ''),
@@ -374,7 +412,12 @@ app.post('/api/books', async (req, res) => {
           sanitizeText(body.physical_description || ''),
           JSON.stringify(normalizeArray(body.subjects || [])),
           sanitizeText(body.ddc_number || ''),
+          sanitizeText(body.ddc_justification || ''),
+          normalizeVerificationStatus(body.ddc_verification_status),
           sanitizeText(body.call_number || ''),
+          sanitizeText(body.bibliographic_source || ''),
+          sanitizeText(body.source_record_id || ''),
+          sanitizeText(body.source_url || ''),
           sanitizeText(body.notes || ''),
         ]
       );
@@ -436,7 +479,8 @@ app.patch('/api/books/:id', async (req, res) => {
     const fields = [
       'title', 'subtitle', 'author', 'publisher', 'publication_place', 'publication_year',
       'edition', 'isbn', 'pages', 'language', 'physical_description', 'subjects',
-      'ddc_number', 'call_number', 'notes'
+      'ddc_number', 'ddc_justification', 'ddc_verification_status', 'call_number',
+      'bibliographic_source', 'source_record_id', 'source_url', 'notes'
     ];
 
     const setClauses = [];
@@ -445,7 +489,11 @@ app.patch('/api/books/:id', async (req, res) => {
 
     for (const field of fields) {
       if (body[field] !== undefined) {
-        const value = field === 'subjects' ? JSON.stringify(normalizeArray(body[field])) : sanitizeText(body[field]);
+        const value = field === 'subjects'
+          ? JSON.stringify(normalizeArray(body[field]))
+          : field === 'ddc_verification_status'
+            ? normalizeVerificationStatus(body[field])
+            : sanitizeText(body[field]);
         setClauses.push(`${field} = $${index}`);
         values.push(value);
         index += 1;
@@ -665,18 +713,53 @@ app.post('/api/cataloguing/suggest', async (req, res) => {
     subjects: payload.subjects || [],
   };
 
+  const suggestion = inferSuggestions(metadata);
+  suggestion.ddc_justification = suggestion.notes || 'Suggested from available bibliographic metadata and subject headings.';
+  suggestion.ddc_verification_status = 'pending';
+
   if (!process.env.AI_API_KEY) {
     return res.status(200).json({
       success: false,
       message: 'AI cataloguing provider is not configured. Using local validation suggestions only.',
-      suggestions: inferSuggestions(metadata),
+      suggestions: suggestion,
     });
   }
 
   return res.status(200).json({
     success: true,
     message: 'AI-assisted suggestions generated successfully.',
-    suggestions: inferSuggestions(metadata),
+    suggestions: suggestion,
+  });
+});
+
+app.post('/api/cataloguing/suggest-ddc', async (req, res) => {
+  const payload = req.body || {};
+  const metadata = {
+    title: payload.title,
+    author: payload.author,
+    publisher: payload.publisher,
+    publication_place: payload.publication_place,
+    publication_year: payload.publication_year,
+    edition: payload.edition,
+    isbn: payload.isbn,
+    pages: payload.pages,
+    physical_description: payload.physical_description,
+    subjects: payload.subjects || [],
+  };
+
+  const suggestion = inferSuggestions(metadata);
+  const response = {
+    ddcNumber: suggestion.ddc_number || '',
+    subject: suggestion.subject_headings?.[0] || '',
+    reason: suggestion.notes || 'Suggested from available book metadata and a broad subject match.',
+    confidence: suggestion.ddc_number ? 'medium' : 'low',
+    verificationStatus: 'pending',
+  };
+
+  return res.status(200).json({
+    success: true,
+    message: 'DDC suggestion generated. Review before saving.',
+    suggestions: response,
   });
 });
 
