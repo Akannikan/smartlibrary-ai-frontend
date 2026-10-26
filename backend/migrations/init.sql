@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS physical_copies (
   id SERIAL PRIMARY KEY,
   bibliographic_record_id INTEGER NOT NULL REFERENCES bibliographic_records(id) ON DELETE CASCADE,
   accession_number TEXT NOT NULL UNIQUE,
-  accession_date DATE,
+  accession_date DATE NOT NULL DEFAULT CURRENT_DATE,
   source_of_acquisition TEXT,
   price NUMERIC(10,2),
   condition TEXT,
@@ -44,6 +44,40 @@ ALTER TABLE bibliographic_records
   ADD COLUMN IF NOT EXISTS bibliographic_source TEXT,
   ADD COLUMN IF NOT EXISTS source_record_id TEXT,
   ADD COLUMN IF NOT EXISTS source_url TEXT;
+
+ALTER TABLE physical_copies
+  ADD COLUMN IF NOT EXISTS accession_date DATE NOT NULL DEFAULT CURRENT_DATE;
+
+ALTER TABLE physical_copies
+  ALTER COLUMN accession_date SET DEFAULT CURRENT_DATE;
+
+UPDATE physical_copies
+SET accession_date = created_at::date
+WHERE accession_date IS NULL;
+
+ALTER TABLE physical_copies
+  ALTER COLUMN accession_date SET NOT NULL;
+
+ALTER TABLE physical_copies
+  DROP CONSTRAINT IF EXISTS physical_copies_accession_number_format;
+
+CREATE OR REPLACE FUNCTION enforce_physical_copy_accession_number()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' OR NEW.accession_number IS DISTINCT FROM OLD.accession_number THEN
+    IF NEW.accession_number !~ '^[0-9]{7}$' THEN
+      RAISE EXCEPTION 'Accession number must be exactly 7 digits.'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS physical_copy_accession_number_format_trigger ON physical_copies;
+CREATE TRIGGER physical_copy_accession_number_format_trigger
+  BEFORE INSERT OR UPDATE OF accession_number ON physical_copies
+  FOR EACH ROW EXECUTE FUNCTION enforce_physical_copy_accession_number();
 
 CREATE INDEX IF NOT EXISTS idx_bibliographic_records_title ON bibliographic_records (title);
 CREATE INDEX IF NOT EXISTS idx_bibliographic_records_author ON bibliographic_records (author);

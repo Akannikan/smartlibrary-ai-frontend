@@ -39,7 +39,6 @@ const bookLookupRateLimit = rateLimit({
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  'https://smartlibrary-ai-frontend.vercel.app',
   process.env.FRONTEND_URL,
   ...(process.env.FRONTEND_URLS || '').split(','),
 ]
@@ -49,11 +48,16 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ''))) {
-        callback(null, true);
-        return;
+      if (!origin) return callback(null, true);
+      let isVercelOrigin = false;
+      try {
+        const parsedOrigin = new URL(origin);
+        isVercelOrigin = parsedOrigin.protocol === 'https:'
+          && parsedOrigin.hostname.endsWith('.vercel.app');
+      } catch {
+        isVercelOrigin = false;
       }
-      callback(new Error('Origin not allowed by CORS'));
+      callback(null, allowedOrigins.includes(origin.replace(/\/$/, '')) || isVercelOrigin);
     },
     credentials: true,
   })
@@ -171,7 +175,7 @@ function inferSuggestions(input = {}) {
 function validateAccessionNumber(value) {
   if (typeof value !== 'string') return false;
   const cleaned = value.trim();
-  return cleaned.length > 0 && /^[A-Za-z0-9\-/.]+$/.test(cleaned);
+  return /^\d{7}$/.test(cleaned);
 }
 
 async function getTableExists(tableName) {
@@ -214,6 +218,12 @@ async function withDatabaseCheck(handler) {
   try {
     return await handler();
   } catch (error) {
+    if (error.code === '23505') {
+      return buildResponse(false, { message: 'That accession number is already in use. Enter the unique 7-digit number stamped on this copy.' }, 409);
+    }
+    if (error.code === '23514') {
+      return buildResponse(false, { message: 'Accession number must be exactly 7 digits.' }, 400);
+    }
     return buildResponse(false, { message: error.message || 'Database error.' }, 500);
   }
 }
@@ -425,13 +435,12 @@ app.post('/api/books', async (req, res) => {
       const bookId = bibliographicInsert.rows[0].id;
       const copyInsert = await client.query(
         `INSERT INTO physical_copies (
-          bibliographic_record_id, accession_number, accession_date, source_of_acquisition,
+          bibliographic_record_id, accession_number, source_of_acquisition,
           price, condition, status, remarks
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
         [
           bookId,
           accessionNumber,
-          body.accession_date || null,
           sanitizeText(body.source_of_acquisition || ''),
           body.price ? Number(body.price) : null,
           sanitizeText(body.condition || ''),
@@ -551,13 +560,12 @@ app.post('/api/books/:id/copies', async (req, res) => {
 
     const result = await query(
       `INSERT INTO physical_copies (
-        bibliographic_record_id, accession_number, accession_date, source_of_acquisition,
+        bibliographic_record_id, accession_number, source_of_acquisition,
         price, condition, status, remarks
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [
         req.params.id,
         accessionNumber,
-        req.body.accession_date || null,
         sanitizeText(req.body.source_of_acquisition || ''),
         req.body.price ? Number(req.body.price) : null,
         sanitizeText(req.body.condition || ''),
@@ -573,7 +581,11 @@ app.post('/api/books/:id/copies', async (req, res) => {
 
 app.patch('/api/copies/:id', async (req, res) => {
   const response = await withDatabaseCheck(async () => {
-    const fields = ['accession_number', 'accession_date', 'source_of_acquisition', 'price', 'condition', 'status', 'remarks'];
+    if (req.body.accession_number !== undefined
+      && !validateAccessionNumber(sanitizeText(req.body.accession_number))) {
+      return buildResponse(false, { message: 'Accession number must be exactly 7 digits.' }, 400);
+    }
+    const fields = ['accession_number', 'source_of_acquisition', 'price', 'condition', 'status', 'remarks'];
     const setClauses = [];
     const values = [];
     let index = 1;

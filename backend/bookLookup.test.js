@@ -156,6 +156,42 @@ test('uses a valid ISBN to select the matching book even when the title was not 
   assert.equal(result.match.isbnMatch, true);
 });
 
+test('does not choose an ISBN when Open Library lists multiple ISBNs for the record', async () => {
+  const result = await searchBooks(
+    { title: dangerousBook.title, author: 'Conn Iggulden' },
+    async () => ({
+      ok: true,
+      json: async () => ({
+        docs: [{
+          ...dangerousBook,
+          isbn: ['9780060761274', '9780060761281'],
+        }],
+      }),
+    }),
+  );
+
+  assert.equal(result.match.isbn, '');
+  assert.deepEqual(result.match.isbn_options, ['9780060761274', '9780060761281']);
+});
+
+test('keeps the searched ISBN when it matches one of several source ISBNs', async () => {
+  const selectedIsbn = '9780060761281';
+  const result = await searchBooks(
+    { isbn: selectedIsbn },
+    async () => ({
+      ok: true,
+      json: async () => ({
+        docs: [{
+          ...dangerousBook,
+          isbn: ['9780060761274', selectedIsbn],
+        }],
+      }),
+    }),
+  );
+
+  assert.equal(result.match.isbn, selectedIsbn);
+});
+
 test('returns available publication metadata and loads a brief summary for an exact work match', async () => {
   const book = {
     ...dangerousBook,

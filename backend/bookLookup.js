@@ -107,7 +107,7 @@ function normalizeDocument(document) {
   const isbns = Array.isArray(document.isbn)
     ? [...new Set(document.isbn.map((isbn) => String(isbn).replace(/[^0-9Xx]/g, '').toUpperCase()).filter(Boolean))]
     : [];
-  const isbn = isbns.find((value) => value.length === 13) || isbns[0] || '';
+  const isbn = isbns.length === 1 ? isbns[0] : '';
   const pages = Number(document.number_of_pages_median);
   const language = firstValue(document.language);
   const publicationDates = Array.isArray(document.publish_date) ? document.publish_date : [];
@@ -130,6 +130,7 @@ function normalizeDocument(document) {
     publication_place: String(firstValue(document.publish_place) || '').trim(),
     publication_year: String(publicationYear),
     isbn,
+    isbn_options: isbns,
     pages: Number.isFinite(pages) && pages > 0 ? String(pages) : '',
     language: LANGUAGE_NAMES[String(language || '').replace(/^\/languages\//, '').toLowerCase()]
       || String(language || '').replace(/^\/languages\//, ''),
@@ -172,6 +173,7 @@ function scoreDocument(document, title, author, isbn) {
 
   return {
     ...normalizeDocument(document),
+    ...(isbnMatch ? { isbn: normalizedIsbn } : {}),
     score: titleScore + titleSimilarity * 2 + (authorMatch ? 0.35 : 0) + (isbnMatch ? 10 : 0),
     titleScore,
     titleSimilarity,

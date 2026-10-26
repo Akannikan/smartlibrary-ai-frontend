@@ -7,6 +7,15 @@ function formatAccessionDate(value) {
   return dateOnly || value;
 }
 
+function formatNaira(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  return new Intl.NumberFormat('en-NG', {
+    style: 'currency',
+    currency: 'NGN',
+    minimumFractionDigits: 2,
+  }).format(Number(value));
+}
+
 export default function AccessionRegisterPage() {
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
@@ -78,7 +87,7 @@ export default function AccessionRegisterPage() {
                   <td className="px-4 py-3">{entry.author || '-'}</td>
                   <td className="px-4 py-3">{entry.title || '-'}</td>
                   <td className="px-4 py-3">{entry.source_of_acquisition || '-'}</td>
-                  <td className="px-4 py-3">{entry.price ? `£${entry.price}` : '-'}</td>
+                  <td className="px-4 py-3">{formatNaira(entry.price)}</td>
                   <td className="px-4 py-3">{entry.condition || '-'}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">{entry.status || 'available'}</span>

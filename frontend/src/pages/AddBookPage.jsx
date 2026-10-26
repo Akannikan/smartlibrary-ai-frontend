@@ -88,7 +88,6 @@ const emptyForm = {
   call_number: '',
   notes: '',
   accession_number: '',
-  accession_date: '',
   source_of_acquisition: '',
   price: '',
   condition: '',
@@ -108,6 +107,7 @@ export default function AddBookPage() {
   const [lookupCandidates, setLookupCandidates] = useState([]);
   const [lookupMessage, setLookupMessage] = useState('');
   const [lastOCRFields, setLastOCRFields] = useState({});
+  const [existingBookId, setExistingBookId] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -119,7 +119,11 @@ export default function AddBookPage() {
   const previewUrlRef = useRef('');
 
   const updateField = (field) => (event) => {
-    setForm((current) => ({ ...current, [field]: event.target.value }));
+    const value = field === 'accession_number'
+      ? event.target.value.replace(/\D/g, '').slice(0, 7)
+      : event.target.value;
+    setForm((current) => ({ ...current, [field]: value }));
+    if (field === 'title' && existingBookId) setExistingBookId(null);
   };
 
   const stopCamera = () => {
@@ -242,6 +246,7 @@ export default function AddBookPage() {
   };
 
   const applyBookMatch = (book, replaceableFields = lastOCRFields, summaryMessage = '') => {
+    setExistingBookId(null);
     const detected = {
       title: book.title,
       author: book.author,
@@ -279,6 +284,30 @@ export default function AddBookPage() {
     );
   };
 
+  const applyExistingBook = (book) => {
+    setExistingBookId(book.id);
+    setForm((current) => ({
+      ...current,
+      title: book.title || '',
+      subtitle: book.subtitle || '',
+      author: book.author || '',
+      publisher: book.publisher || '',
+      publication_place: book.publication_place || '',
+      publication_year: book.publication_year || '',
+      edition: book.edition || '',
+      isbn: book.isbn || '',
+      pages: book.pages || '',
+      language: book.language || '',
+      physical_description: book.physical_description || '',
+      subjects: Array.isArray(book.subjects) ? book.subjects.join(', ') : '',
+      ddc_number: book.ddc_number || '',
+      call_number: book.call_number || '',
+      notes: book.notes || '',
+    }));
+    setLookupCandidates([]);
+    setLookupMessage('Saved title loaded. Enter the new copy’s manually assigned accession number; bibliographic details will be reused.');
+  };
+
   const handleTitleSearch = async () => {
     const title = form.title.trim();
     if (!title) {
@@ -291,6 +320,29 @@ export default function AddBookPage() {
     setLookupCandidates([]);
     setLookupMessage('');
     try {
+      try {
+        const saved = await api.getBooks(title);
+        const exactTitle = (saved.data || []).filter((book) => (
+          String(book.title || '').trim().toLowerCase() === title.toLowerCase()
+        ));
+        const author = form.author.trim().toLowerCase();
+        const matchingRecords = author
+          ? exactTitle.filter((book) => String(book.author || '').trim().toLowerCase() === author)
+          : exactTitle;
+
+        if (matchingRecords.length === 1) {
+          applyExistingBook(matchingRecords[0]);
+          return;
+        }
+        if (matchingRecords.length > 1) {
+          setLookupCandidates(matchingRecords.map((book) => ({ ...book, localRecordId: book.id })));
+          setLookupMessage('More than one saved edition has this title. Select the correct saved record to add a copy.');
+          return;
+        }
+      } catch {
+        // Keep external title search available when database-backed search is unavailable.
+      }
+
       const result = await api.searchBooks({
         title,
         author: form.author.trim(),
@@ -415,20 +467,11 @@ export default function AddBookPage() {
     }
   };
 
-  const handleApprove = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await api.approveRecord({ title: form.title, author: form.author, accession_number: form.accession_number });
-      setSuccess(result.message || 'Approved for save.');
-    } catch (err) {
-      setError(err.message || 'Approval failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSave = async () => {
+    if (!/^\d{7}$/.test(form.accession_number)) {
+      setError('Accession number must be exactly 7 digits.');
+      return;
+    }
     setLoading(true);
     setError('');
     setSuccess('');
@@ -438,9 +481,14 @@ export default function AddBookPage() {
         ...form,
         subjects: form.subjects ? form.subjects.split(',').map((item) => item.trim()).filter(Boolean) : [],
       };
-      const result = await api.createBook(payload);
+      if (existingBookId) {
+        await api.addCopy(existingBookId, payload);
+      } else {
+        await api.createBook(payload);
+      }
       setSuccess(`Record saved successfully with accession number ${form.accession_number}.`);
       setForm(emptyForm);
+      setExistingBookId(null);
       setLookupCandidates([]);
       setLookupMessage('');
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -597,13 +645,17 @@ export default function AddBookPage() {
                     <li key={`${candidate.title}-${candidate.author}-${index}`}>
                       <button
                         type="button"
-                        onClick={() => applyBookMatch(candidate)}
+                        onClick={() => (candidate.localRecordId ? applyExistingBook(candidate) : applyBookMatch(candidate))}
                         className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-sm text-slate-800 shadow-sm transition hover:border-brand-500 hover:bg-brand-50"
                       >
                         <span className="font-semibold">{candidate.title}</span>
                         {candidate.author ? <span className="mt-0.5 block text-xs text-slate-500">{candidate.author}</span> : null}
                         <span className="mt-1 block text-xs text-slate-500">
-                          {[candidate.publisher, candidate.publication_year, candidate.isbn].filter(Boolean).join(' · ')}
+                          {[candidate.publisher, candidate.publication_year, candidate.edition,
+                            candidate.isbn || (candidate.isbn_options?.length
+                              ? `ISBN options: ${candidate.isbn_options.join(', ')}`
+                              : '')]
+                            .filter(Boolean).join(' · ') || candidate.source || 'Saved catalogue record'}
                         </span>
                       </button>
                     </li>
@@ -666,19 +718,28 @@ export default function AddBookPage() {
             <p className="md:col-span-2 mt-2 border-t border-slate-100 pt-5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Physical copy details</p>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Accession number</span>
-              <input value={form.accession_number} onChange={updateField('accession_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
-            </label>
-            <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>Accession date</span>
-              <input type="date" value={form.accession_date} onChange={updateField('accession_date')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input inputMode="numeric" maxLength={7} value={form.accession_number} onChange={updateField('accession_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="7 digits" />
+              <span className="block text-xs font-normal text-slate-500">Enter the 7-digit number stamped on this copy.</span>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Source of acquisition</span>
-              <input value={form.source_of_acquisition} onChange={updateField('source_of_acquisition')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <select value={form.source_of_acquisition} onChange={updateField('source_of_acquisition')} className="w-full rounded-lg border border-stone-300 px-3 py-2">
+                <option value="">Select a source</option>
+                <option value="Purchase">Purchase</option>
+                <option value="Donation">Donation</option>
+                <option value="Gift">Gift</option>
+                <option value="Government allocation">Government allocation</option>
+                <option value="Institutional transfer">Institutional transfer</option>
+                <option value="Exchange">Exchange</option>
+                <option value="Other">Other</option>
+              </select>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>Price</span>
-              <input value={form.price} onChange={updateField('price')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <span>Purchase price (NGN)</span>
+              <div className="flex overflow-hidden rounded-lg border border-stone-300 focus-within:ring-2 focus-within:ring-brand-200">
+                <span className="flex items-center border-r border-stone-300 bg-stone-50 px-3 text-slate-600" aria-hidden="true">₦</span>
+                <input type="number" min="0" step="0.01" value={form.price} onChange={updateField('price')} className="min-w-0 flex-1 px-3 py-2 outline-none" />
+              </div>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Condition</span>
@@ -710,7 +771,6 @@ export default function AddBookPage() {
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={handleApprove} className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm font-semibold text-brand-700 transition hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={loading}>Approve</button>
             <button onClick={handleSave} className="rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-900 disabled:cursor-not-allowed disabled:opacity-60" disabled={loading}>Save record</button>
           </div>
         </div>
