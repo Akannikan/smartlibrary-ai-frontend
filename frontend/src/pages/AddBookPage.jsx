@@ -296,12 +296,20 @@ export default function AddBookPage() {
         author: form.author.trim(),
         isbn: form.isbn.trim(),
       });
+      const candidates = result.candidates || [];
       if (result.match) {
-        applyBookMatch(result.match, lastOCRFields, result.summaryMessage);
-      } else {
-        setLookupCandidates(result.candidates || []);
-        setLookupMessage([result.message, result.summaryMessage].filter(Boolean).join(' '));
+        const matchIndex = candidates.findIndex((candidate) => (
+          candidate.title === result.match.title
+          && candidate.author === result.match.author
+        ));
+        if (matchIndex >= 0 && result.match.notes) {
+          candidates[matchIndex] = { ...candidates[matchIndex], notes: result.match.notes };
+        }
       }
+      setLookupCandidates(candidates);
+      setLookupMessage(candidates.length
+        ? 'Review the possible matches and select the correct edition before applying its details.'
+        : [result.message, result.summaryMessage].filter(Boolean).join(' '));
     } catch (searchError) {
       setError(`Book search failed: ${searchError.message}`);
       setLookupMessage('You can continue by entering the bibliographic details manually.');
