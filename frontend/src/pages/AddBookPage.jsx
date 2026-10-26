@@ -101,6 +101,7 @@ export default function AddBookPage() {
   const [imagePreview, setImagePreview] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [ocrProgress, setOcrProgress] = useState(null);
@@ -276,6 +277,37 @@ export default function AddBookPage() {
         : '')
       + (summaryMessage ? ` ${summaryMessage}` : ''),
     );
+  };
+
+  const handleTitleSearch = async () => {
+    const title = form.title.trim();
+    if (!title) {
+      setError('Enter a book title before searching the catalogue.');
+      return;
+    }
+
+    setSearching(true);
+    setError('');
+    setLookupCandidates([]);
+    setLookupMessage('');
+    try {
+      const result = await api.searchBooks({
+        title,
+        author: form.author.trim(),
+        isbn: form.isbn.trim(),
+      });
+      if (result.match) {
+        applyBookMatch(result.match, lastOCRFields, result.summaryMessage);
+      } else {
+        setLookupCandidates(result.candidates || []);
+        setLookupMessage([result.message, result.summaryMessage].filter(Boolean).join(' '));
+      }
+    } catch (searchError) {
+      setError(`Book search failed: ${searchError.message}`);
+      setLookupMessage('You can continue by entering the bibliographic details manually.');
+    } finally {
+      setSearching(false);
+    }
   };
 
   const handleExtract = async () => {
@@ -519,27 +551,6 @@ export default function AddBookPage() {
               </div>
             </div>
           ) : null}
-          {lookupMessage ? <p className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3.5 py-3 text-sm leading-5 text-sky-900" role="status">{lookupMessage}</p> : null}
-          {lookupCandidates.length ? (
-            <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/80 p-4">
-              <p className="text-sm font-semibold text-sky-950">Choose the correct match</p>
-              <p className="mt-1 text-xs text-sky-800">Selecting a result fills any additional details found online.</p>
-              <ul className="mt-2 space-y-2">
-                {lookupCandidates.map((candidate, index) => (
-                  <li key={`${candidate.title}-${candidate.author}-${index}`}>
-                    <button
-                      type="button"
-                      onClick={() => applyBookMatch(candidate)}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-sm text-slate-800 shadow-sm transition hover:border-brand-500 hover:bg-brand-50"
-                    >
-                      <span className="font-semibold">{candidate.title}</span>
-                      {candidate.author ? <span className="mt-0.5 block text-xs text-slate-500">{candidate.author}</span> : null}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
 
         <div className="book-form animate-fade-up rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.25)] sm:p-6">
@@ -552,10 +563,46 @@ export default function AddBookPage() {
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <p className="md:col-span-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Bibliographic details</p>
-            <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>Title</span>
-              <input value={form.title} onChange={updateField('title')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
-            </label>
+            <div className="space-y-2 md:col-span-2">
+              <label htmlFor="book-title" className="block text-sm font-medium text-slate-700">Title</label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input id="book-title" value={form.title} onChange={updateField('title')} className="min-w-0 flex-1 rounded-lg border border-stone-300 px-3 py-2" />
+                <button
+                  type="button"
+                  onClick={handleTitleSearch}
+                  disabled={searching || loading || !form.title.trim()}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-900 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {searching ? <span className="loading-spinner h-4 w-4 border-2 border-white/40 border-t-white" aria-hidden="true" /> : null}
+                  {searching ? 'Searching…' : 'Search catalogue'}
+                </button>
+              </div>
+              <p className="text-xs text-slate-500">Search by title; author and ISBN are optional. No image required.</p>
+            </div>
+            {lookupMessage ? <p className="md:col-span-2 rounded-xl border border-sky-100 bg-sky-50 px-3.5 py-3 text-sm leading-5 text-sky-900" role="status">{lookupMessage}</p> : null}
+            {lookupCandidates.length ? (
+              <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50/80 p-4">
+                <p className="text-sm font-semibold text-sky-950">Choose the correct match</p>
+                <p className="mt-1 text-xs text-sky-800">Selecting a result fills in available bibliographic details for your review.</p>
+                <ul className="mt-2 space-y-2">
+                  {lookupCandidates.map((candidate, index) => (
+                    <li key={`${candidate.title}-${candidate.author}-${index}`}>
+                      <button
+                        type="button"
+                        onClick={() => applyBookMatch(candidate)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-sm text-slate-800 shadow-sm transition hover:border-brand-500 hover:bg-brand-50"
+                      >
+                        <span className="font-semibold">{candidate.title}</span>
+                        {candidate.author ? <span className="mt-0.5 block text-xs text-slate-500">{candidate.author}</span> : null}
+                        <span className="mt-1 block text-xs text-slate-500">
+                          {[candidate.publisher, candidate.publication_year, candidate.isbn].filter(Boolean).join(' · ')}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Author</span>
               <input value={form.author} onChange={updateField('author')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
