@@ -1,10 +1,7 @@
 import { parseApiResponse } from './apiResponse';
 
-const API_BASE_URL = import.meta.env.DEV ? import.meta.env.VITE_API_URL || '' : '';
-const OCR_API_BASE_URL = (
-  import.meta.env.VITE_OCR_API_URL
-  || (import.meta.env.DEV ? '' : 'https://smartlibrary-ai-frontend-1.onrender.com')
-).replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const OCR_API_BASE_URL = (import.meta.env.VITE_OCR_API_URL || API_BASE_URL).replace(/\/$/, '');
 
 async function apiRequest(path, options = {}) {
   const requestUrl = /^https?:\/\//i.test(path) ? path : `${API_BASE_URL}${path}`;

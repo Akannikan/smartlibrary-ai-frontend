@@ -91,8 +91,8 @@ Browser (React + Vite)
 | `DATABASE_URL` | Backend / Render | PostgreSQL connection string; required by the server. |
 | `PORT` | Backend / Render | HTTP port; defaults to `5000` locally. Render supplies it in production. |
 | `FRONTEND_URL` | Backend / Render | Frontend origin allowed by backend CORS. |
-| `VITE_API_URL` | Frontend / local only | Optional API origin; Vite's proxy works by default. |
-| `VITE_OCR_API_URL` | Frontend | Optional direct backend origin for OCR and catalogue lookup. |
+| `VITE_API_URL` | Frontend / Vercel | Backend origin, for example `https://your-service.onrender.com`. Leave blank locally to use Vite's proxy. |
+| `VITE_OCR_API_URL` | Frontend | Optional separate backend origin for OCR and catalogue lookup; defaults to `VITE_API_URL`. |
 | `AI_API_KEY` | Backend | Not needed for the MVP. Subjects and class suggestions use the public Open Library catalogue. |
 
 Environment templates are in `backend/.env.example` and `frontend/.env.example`. Never commit `.env` files or secrets.
@@ -136,8 +136,7 @@ Deploy using [render.yaml](./render.yaml), or create a Node web service with `ba
 
 ### Vercel frontend
 
-Import the repository with `frontend` as its root directory. Use `npm run build` and `dist` as the output directory. [vercel.json](./frontend/vercel.json) forwards `/api/*` to the Render service and routes frontend paths to the React app. Update its Render destination if your backend's hostname differs.
-OCR uploads call the Render origin directly; set `VITE_OCR_API_URL` to that backend origin if it changes.
+Import the repository with `frontend` as its root directory. Use `npm run build` and `dist` as the output directory. In Vercel project settings, set `VITE_API_URL` to the actual Render backend origin and redeploy. The Vercel rewrite only serves React routes; API calls use this environment variable directly. Set `VITE_OCR_API_URL` only when OCR/catalogue lookup uses a different backend origin.
 
 ## MVP limitations
 
