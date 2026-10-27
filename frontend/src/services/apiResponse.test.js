@@ -37,6 +37,6 @@ test('rejects unexpected HTML from a successful status without leaking parser er
       '<!DOCTYPE html><title>Frontend page</title>',
       { status: 200, headers: { 'Content-Type': 'text/html' } },
     )),
-    { status: 200, message: /unexpected response/ },
+    { status: 200, message: /VITE_API_URL.*Render backend/ },
   );
 });
