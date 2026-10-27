@@ -310,8 +310,9 @@ export default function AddBookPage() {
 
   const handleTitleSearch = async () => {
     const title = form.title.trim();
-    if (!title) {
-      setError('Enter a book title before searching the catalogue.');
+    const isbn = form.isbn.trim();
+    if (!title && !isbn) {
+      setError('Enter a title or ISBN before searching the catalogue.');
       return;
     }
 
@@ -320,33 +321,35 @@ export default function AddBookPage() {
     setLookupCandidates([]);
     setLookupMessage('');
     try {
-      try {
-        const saved = await api.getBooks(title);
-        const exactTitle = (saved.data || []).filter((book) => (
-          String(book.title || '').trim().toLowerCase() === title.toLowerCase()
-        ));
-        const author = form.author.trim().toLowerCase();
-        const matchingRecords = author
-          ? exactTitle.filter((book) => String(book.author || '').trim().toLowerCase() === author)
-          : exactTitle;
+      if (title) {
+        try {
+          const saved = await api.getBooks(title);
+          const exactTitle = (saved.data || []).filter((book) => (
+            String(book.title || '').trim().toLowerCase() === title.toLowerCase()
+          ));
+          const author = form.author.trim().toLowerCase();
+          const matchingRecords = author
+            ? exactTitle.filter((book) => String(book.author || '').trim().toLowerCase() === author)
+            : exactTitle;
 
-        if (matchingRecords.length === 1) {
-          applyExistingBook(matchingRecords[0]);
-          return;
+          if (matchingRecords.length === 1) {
+            applyExistingBook(matchingRecords[0]);
+            return;
+          }
+          if (matchingRecords.length > 1) {
+            setLookupCandidates(matchingRecords.map((book) => ({ ...book, localRecordId: book.id })));
+            setLookupMessage('More than one saved edition has this title. Select the correct saved record to add a copy.');
+            return;
+          }
+        } catch {
+          // Continue with the external search if database search is unavailable.
         }
-        if (matchingRecords.length > 1) {
-          setLookupCandidates(matchingRecords.map((book) => ({ ...book, localRecordId: book.id })));
-          setLookupMessage('More than one saved edition has this title. Select the correct saved record to add a copy.');
-          return;
-        }
-      } catch {
-        // Keep external title search available when database-backed search is unavailable.
       }
 
       const result = await api.searchBooks({
         title,
         author: form.author.trim(),
-        isbn: form.isbn.trim(),
+        isbn,
       });
       const candidates = result.candidates || [];
       if (result.match) {
@@ -626,14 +629,14 @@ export default function AddBookPage() {
                 <button
                   type="button"
                   onClick={handleTitleSearch}
-                  disabled={searching || loading || !form.title.trim()}
+                  disabled={searching || loading || (!form.title.trim() && !form.isbn.trim())}
                   className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-900 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {searching ? <span className="loading-spinner h-4 w-4 border-2 border-white/40 border-t-white" aria-hidden="true" /> : null}
                   {searching ? 'Searching…' : 'Search catalogue'}
                 </button>
               </div>
-              <p className="text-xs text-slate-500">Search by title; author and ISBN are optional. No image required.</p>
+              <p className="text-xs text-slate-500">Search by title or ISBN; author is optional. No image required.</p>
             </div>
             {lookupMessage ? <p className="md:col-span-2 rounded-xl border border-sky-100 bg-sky-50 px-3.5 py-3 text-sm leading-5 text-sky-900" role="status">{lookupMessage}</p> : null}
             {lookupCandidates.length ? (

@@ -72,19 +72,46 @@ function formatSummary(value) {
   return clean.slice(0, sentenceEnd > 0 ? sentenceEnd + 1 : 600).trim();
 }
 
-function inferDeweyNumber(subjects, suppliedNumbers = []) {
+function inferDeweyNumber(subjects, suppliedNumbers = [], title = '') {
   const numberList = Array.isArray(suppliedNumbers) ? suppliedNumbers : [suppliedNumbers];
   const supplied = numberList.find((value) => /^\d{3}(?:\.\d+)?$/.test(String(value).trim()));
   if (supplied) return { number: String(supplied).trim(), source: 'Open Library' };
 
-  const subjectText = subjects.join(' ').toLowerCase();
+  const subjectText = `${subjects.join(' ')} ${title}`.toLowerCase();
   const classifications = [
+    { pattern: /\b(bible|biblical studies)\b/, number: '220' },
+    { pattern: /\b(christianity|christian theology|jesus)\b/, number: '230' },
+    { pattern: /\b(religion|religious studies|theology)\b/, number: '200' },
+    { pattern: /\b(philosophy|metaphysics|epistemology)\b/, number: '100' },
+    { pattern: /\b(psychology|mental health|cognition)\b/, number: '150' },
+    { pattern: /\b(ethics|moral philosophy)\b/, number: '170' },
+    { pattern: /\b(algebra|geometry|mathematics|mathematical)\b/, number: '510' },
+    { pattern: /\b(computer science|computers|programming|software)\b/, number: '004' },
+    { pattern: /\b(physics|mechanics|thermodynamics)\b/, number: '530' },
+    { pattern: /\b(chemistry|chemical)\b/, number: '540' },
+    { pattern: /\b(biology|biological|genetics|ecology)\b/, number: '570' },
+    { pattern: /\b(medicine|medical|health sciences|nursing)\b/, number: '610' },
+    { pattern: /\b(engineering|technology)\b/, number: '620' },
+    { pattern: /\b(agriculture|farming)\b/, number: '630' },
+    { pattern: /\b(cooking|cookbooks|food preparation)\b/, number: '641.5' },
+    { pattern: /\b(business|management|accounting)\b/, number: '650' },
+    { pattern: /\b(law|legal studies)\b/, number: '340' },
+    { pattern: /\b(politics|political science|government)\b/, number: '320' },
+    { pattern: /\b(economics|finance|personal finance)\b/, number: '330' },
+    { pattern: /\b(education|teaching|schools|educational)\b/, number: '370' },
+    { pattern: /\b(sociology|social sciences|society)\b/, number: '300' },
+    { pattern: /\b(language|linguistics|grammar)\b/, number: '400' },
+    { pattern: /\b(poetry|poems)\b/, number: '808.1' },
+    { pattern: /\b(comics|comic books|graphic novels)\b/, number: '741.5' },
+    { pattern: /\b(art|painting|drawing|sculpture)\b/, number: '700' },
+    { pattern: /\b(music|musical)\b/, number: '780' },
     { pattern: /\b(outdoor skills|outdoor life|camping|outdoor recreation)\b/, number: '796.5' },
     { pattern: /\b(biography|biographies|memoir|autobiograph)\b/, number: '920' },
-    { pattern: /\b(history|historical)\b/, number: '900' },
     { pattern: /\b(fiction|novel|novels|stories)\b/, number: '800' },
-    { pattern: /\b(handbook|handbooks|reference|miscellanea|general knowledge)\b/, number: '031.02' },
+    { pattern: /\b(handbook|handbooks|reference|miscellanea|general knowledge|encyclopedia)\b/, number: '030' },
     { pattern: /\b(recreation|amusements|sports|games)\b/, number: '790' },
+    { pattern: /\b(geography|travel|maps|exploration)\b/, number: '910' },
+    { pattern: /\b(history|historical)\b/, number: '900' },
     { pattern: /\b(science|natural history)\b/, number: '500' },
   ];
   const classification = classifications.find(({ pattern }) => pattern.test(subjectText));
@@ -99,7 +126,7 @@ function normalizeDocument(document) {
     ? [...new Set(document.subject.map((subject) => String(subject).trim()).filter(Boolean))]
       .slice(0, 8)
     : [];
-  const classification = inferDeweyNumber(subjects, document.dewey_decimal_class || []);
+  const classification = inferDeweyNumber(subjects, document.dewey_decimal_class || [], document.title || '');
   const authors = Array.isArray(document.author_name)
     ? [...new Set(document.author_name.map((author) => String(author).trim()).filter(Boolean))]
       .slice(0, 5)

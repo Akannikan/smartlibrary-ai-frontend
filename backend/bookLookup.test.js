@@ -296,3 +296,18 @@ test('prefers subject-based classifications for outdoor/reference books', () => 
     { number: '823.914', source: 'Open Library' },
   );
 });
+
+test('suggests broad DDC classes from common subjects and leaves unsupported subjects blank', () => {
+  assert.deepEqual(inferDeweyNumber(['Education', 'Teaching']), {
+    number: '370',
+    source: 'Suggested from subject headings',
+  });
+  assert.deepEqual(inferDeweyNumber([], [], 'Programming with JavaScript'), {
+    number: '004',
+    source: 'Suggested from subject headings',
+  });
+  assert.deepEqual(inferDeweyNumber(['Astrological traditions']), {
+    number: '',
+    source: '',
+  });
+});
