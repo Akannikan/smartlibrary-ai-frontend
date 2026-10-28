@@ -198,8 +198,8 @@ test('returns available publication metadata and loads a brief summary for an ex
     key: '/works/OL123W',
     publisher: ['Example Press'],
     publish_place: ['London'],
-    first_publish_year: 2010,
-    number_of_pages_median: 256,
+    publish_date: ['2010'],
+    number_of_pages: 256,
     language: ['eng'],
     isbn: ['9780060761274'],
   };
@@ -247,6 +247,76 @@ test('uses the Open Library first sentence when available without a work-detail 
   );
 
   assert.equal(result.match.notes, 'A practical handbook for young readers.');
+});
+
+test('preserves edition-specific metadata and does not substitute work-level estimates', async () => {
+  const result = await searchBooks(
+    { author: 'Conn Iggulden' },
+    async () => ({
+      ok: true,
+      json: async () => ({
+        docs: [
+          {
+            ...dangerousBook,
+            edition_key: ['OL100M'],
+            isbn: ['9780000000001'],
+            publisher: ['First Press'],
+            publish_place: ['London'],
+            publish_date: ['2018'],
+            number_of_pages: 240,
+            language: ['eng'],
+          },
+          {
+            ...dangerousBook,
+            edition_key: ['OL200M'],
+            isbn: ['9780000000002'],
+            publisher: ['Second Press', 'Other Imprint'],
+            publish_place: ['Accra', 'Lagos'],
+            publish_date: ['2019', '2020'],
+            number_of_pages_median: 320,
+            first_publish_year: 2001,
+            language: ['eng', 'fre'],
+          },
+        ],
+      }),
+    }),
+  );
+
+  assert.equal(result.match, null);
+  assert.equal(result.candidates.length, 2);
+  assert.equal(result.candidates[0].source_url, 'https://openlibrary.org/books/OL100M');
+  assert.equal(result.candidates[0].pages, '240');
+  assert.equal(result.candidates[0].publisher, 'First Press');
+  assert.equal(result.candidates[1].publisher, '');
+  assert.equal(result.candidates[1].publication_place, '');
+  assert.equal(result.candidates[1].publication_year, '');
+  assert.equal(result.candidates[1].pages, '');
+  assert.equal(result.candidates[1].language, '');
+});
+
+test('prefers the detailed work description over a short first sentence', async () => {
+  const detailedDescription = `A detailed book description. ${'Further details about the book and its subjects. '.repeat(20)}`;
+  const result = await searchBooks(
+    { title: dangerousBook.title, author: 'Conn Iggulden' },
+    async (url) => {
+      if (String(url).includes('/works/OL123W.json')) {
+        return { ok: true, json: async () => ({ description: { value: detailedDescription } }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          docs: [{
+            ...dangerousBook,
+            key: '/works/OL123W',
+            first_sentence: ['A short first sentence.'],
+          }],
+        }),
+      };
+    },
+  );
+
+  assert.equal(result.match.notes, detailedDescription.trim());
+  assert.ok(result.match.notes.length > 600);
 });
 
 test('searches title-only when OCR has a useful one-word title and no author', async () => {

@@ -56,8 +56,11 @@ function titleTokenMatches(wanted, found) {
   return editDistance(wanted, found) <= Math.max(1, Math.floor(Math.min(wanted.length, found.length) * 0.2));
 }
 
-function firstValue(value) {
-  return Array.isArray(value) ? value.find((item) => item) : value;
+function uniqueValue(value) {
+  const values = [...new Set((Array.isArray(value) ? value : [value])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean))];
+  return values.length === 1 ? values[0] : '';
 }
 
 function formatSummary(value) {
@@ -67,9 +70,7 @@ function formatSummary(value) {
   if (typeof summary !== 'string') return '';
 
   const clean = summary.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  if (clean.length <= 600) return clean;
-  const sentenceEnd = clean.slice(0, 600).search(/[.!?](?:\s|$)/);
-  return clean.slice(0, sentenceEnd > 0 ? sentenceEnd + 1 : 600).trim();
+  return clean.slice(0, 10000).trim();
 }
 
 function inferDeweyNumber(subjects, suppliedNumbers = [], title = '') {
@@ -135,30 +136,31 @@ function normalizeDocument(document) {
     ? [...new Set(document.isbn.map((isbn) => String(isbn).replace(/[^0-9Xx]/g, '').toUpperCase()).filter(Boolean))]
     : [];
   const isbn = isbns.length === 1 ? isbns[0] : '';
-  const pages = Number(document.number_of_pages_median);
-  const language = firstValue(document.language);
+  const pages = Number(document.number_of_pages);
+  const language = uniqueValue(document.language);
   const publicationDates = Array.isArray(document.publish_date) ? document.publish_date : [];
-  const publicationYear = publicationDates
+  const publicationYears = [...new Set(publicationDates
     .map((date) => String(date).match(/\b(?:18|19|20|21)\d{2}\b/)?.[0])
-    .find(Boolean)
-    || document.first_publish_year
-    || '';
+    .filter(Boolean))];
+  const publicationYear = publicationYears.length === 1 ? publicationYears[0] : '';
   const ddcNumber = classification.number;
   const authorCode = normalize(authors[0]?.split(/\s+/).at(-1) || '')
     .slice(0, 3)
     .toUpperCase();
+  const editionKey = uniqueValue(document.edition_key);
+  const recordKey = String(document.key || '');
 
   return {
     title: String(document.title || '').trim(),
     author: authors.join('; '),
     subtitle: String(document.subtitle || '').trim(),
     edition: String(document.edition_name || document.edition_statement || '').trim(),
-    publisher: String(firstValue(document.publisher) || '').trim(),
-    publication_place: String(firstValue(document.publish_place) || '').trim(),
+    publisher: uniqueValue(document.publisher),
+    publication_place: uniqueValue(document.publish_place),
     publication_year: String(publicationYear),
     isbn,
     isbn_options: isbns,
-    pages: Number.isFinite(pages) && pages > 0 ? String(pages) : '',
+    pages: Number.isInteger(pages) && pages > 0 ? String(pages) : '',
     language: LANGUAGE_NAMES[String(language || '').replace(/^\/languages\//, '').toLowerCase()]
       || String(language || '').replace(/^\/languages\//, ''),
     physical_description: Number.isFinite(pages) && pages > 0 ? `${pages} pages` : '',
@@ -168,9 +170,11 @@ function normalizeDocument(document) {
     call_number: ddcNumber && authorCode ? `${ddcNumber} ${authorCode}` : '',
     classification_source: classification.source,
     source: document.source || 'Open Library',
-    source_url: document.source_url || '',
-    source_record_id: document.source_record_id || '',
-    work_key: String(document.key || ''),
+    source_url: editionKey
+      ? `${OPEN_LIBRARY_BASE_URL}/books/${editionKey}`
+      : recordKey.startsWith('/') ? `${OPEN_LIBRARY_BASE_URL}${recordKey}` : '',
+    source_record_id: editionKey || recordKey.replace(/^\/(?:works|books)\//, ''),
+    work_key: recordKey,
   };
 }
 
@@ -214,7 +218,7 @@ async function fetchDocuments(parameters, fetchImplementation) {
   const url = new URL(OPEN_LIBRARY_SEARCH_URL);
   url.searchParams.set(
     'fields',
-    'title,subtitle,edition_name,edition_statement,author_name,subject,dewey_decimal_class,isbn,publisher,publish_place,first_publish_year,publish_date,number_of_pages_median,language,first_sentence,key',
+    'title,subtitle,edition_name,edition_statement,edition_key,author_name,subject,dewey_decimal_class,isbn,publisher,publish_place,publish_date,number_of_pages,language,first_sentence,description,key',
   );
   url.searchParams.set('limit', '50');
   Object.entries(parameters).forEach(([key, value]) => url.searchParams.set(key, value));
@@ -285,7 +289,7 @@ async function searchBooks({ title = '', author = '', isbn = '' } = {}, fetchImp
     queries.map((parameters) => fetchDocuments(parameters, fetchImplementation)),
   )).flat();
   const deduplicated = [...new Map(documents.map((document) => [
-    `${normalize(document.title)}|${(document.author_name || []).map(normalize).sort().join('|')}`,
+    `${normalize(document.title)}|${uniqueValue(document.edition_key) || (document.isbn || []).map(String).sort().join('|') || (document.author_name || []).map(normalize).sort().join('|')}`,
     document,
   ])).values()];
   const rankDocuments = (books) => books
@@ -345,11 +349,13 @@ async function searchBooks({ title = '', author = '', isbn = '' } = {}, fetchImp
   const match = strongIsbnMatch || strongTitleMatch || OCRTitleMatch ? best : null;
   let summaryMessage = '';
 
-  if (match && !match.notes && match.work_key) {
+  if (match && match.work_key) {
     try {
-      match.notes = await fetchWorkSummary(match.work_key, fetchImplementation);
+      match.notes = await fetchWorkSummary(match.work_key, fetchImplementation) || match.notes;
     } catch {
-      summaryMessage = 'Open Library found the book, but its summary could not be loaded. You can still enter notes manually.';
+      if (!match.notes) {
+        summaryMessage = 'Open Library found the book, but its summary could not be loaded. You can still enter notes manually.';
+      }
     }
   }
 
