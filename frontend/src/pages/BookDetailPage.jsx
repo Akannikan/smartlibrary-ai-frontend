@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../services/api';
-import { isValidIsbn, normalizeIsbn } from '../services/cataloguing';
+import {
+  formatIsbn13,
+  isValidFormattedIsbn13,
+  normalizeIsbn,
+} from '../services/cataloguing';
 
 const initialForm = {
   title: '',
@@ -40,7 +44,7 @@ export default function BookDetailPage() {
         publication_place: data.publication_place || '',
         publication_year: data.publication_year || '',
         edition: data.edition || '',
-        isbn: normalizeIsbn(data.isbn),
+        isbn: formatIsbn13(data.isbn),
         pages: data.pages || '',
         language: data.language || '',
         physical_description: data.physical_description || '',
@@ -53,20 +57,20 @@ export default function BookDetailPage() {
 
   const updateField = (field) => (event) => {
     const value = field === 'isbn'
-      ? normalizeIsbn(event.target.value).slice(0, 13)
+      ? formatIsbn13(normalizeIsbn(event.target.value).slice(0, 13))
       : event.target.value;
     setForm((current) => ({ ...current, [field]: value }));
   };
 
   const saveChanges = async () => {
-    if (form.isbn && !isValidIsbn(form.isbn)) {
-      setError('Enter a valid ISBN-10 or ISBN-13 with a correct check digit.');
+    if (form.isbn && !isValidFormattedIsbn13(form.isbn)) {
+      setError('Enter a valid ISBN-13 in 978-0-306-40615-7 format with a correct check digit.');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      const result = await api.updateBook(id, form);
+      const result = await api.updateBook(id, { ...form, isbn: normalizeIsbn(form.isbn) });
       setMessage(result.message || 'Record updated successfully.');
       setBook(result.data || book);
     } catch (error) {
@@ -124,7 +128,7 @@ export default function BookDetailPage() {
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>ISBN</span>
-              <input inputMode="text" maxLength={13} pattern="(?:[0-9]{13}|[0-9]{9}[0-9X])" title="Enter a valid 10-character or 13-digit ISBN without separators." value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="9780306406157 or 0306406152" />
+              <input inputMode="numeric" maxLength={17} pattern="97[89]-[0-9]{1,5}-[0-9]{1,7}-[0-9]{1,6}-[0-9]" title="Enter a valid ISBN-13 with four hyphens, for example 978-0-306-40615-7." value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="978-0-306-40615-7" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Pages</span>

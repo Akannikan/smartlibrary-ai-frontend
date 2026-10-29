@@ -1,11 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractMetadataFromText, isValidIsbn, normalizeIsbn } from './cataloguing.js';
+import {
+  extractMetadataFromText,
+  formatIsbn13,
+  isValidFormattedIsbn13,
+  isValidIsbn,
+  normalizeIsbn,
+} from './cataloguing.js';
 
 test('normalizes and validates ISBN-10 and ISBN-13 values', () => {
   assert.equal(normalizeIsbn('978-0-306-40615-7'), '9780306406157');
+  assert.equal(formatIsbn13('9'), '9');
+  assert.equal(formatIsbn13('9780'), '978-0');
+  assert.equal(formatIsbn13('9780306406157'), '978-0-306-40615-7');
+  assert.equal(formatIsbn13('0-306-40615-2'), '978-0-306-40615-7');
   assert.equal(isValidIsbn('978-0-306-40615-7'), true);
   assert.equal(isValidIsbn('0-306-40615-2'), true);
+  assert.equal(isValidFormattedIsbn13('978-0-306-40615-7'), true);
+  assert.equal(isValidFormattedIsbn13('978-00-306-40615-7'), false);
+  assert.equal(isValidFormattedIsbn13('978-0-306-40615-8'), false);
   assert.equal(isValidIsbn('978-0-306-40615-8'), false);
   assert.equal(isValidIsbn('1234567890123'), false);
   assert.equal(isValidIsbn('978030640615X'), false);

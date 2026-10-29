@@ -41,6 +41,27 @@ export function normalizeIsbn(value) {
   return String(value || '').replace(/[^0-9Xx]/g, '').toUpperCase();
 }
 
+export function formatIsbn13(value) {
+  let isbn = normalizeIsbn(value);
+  if (/^\d{9}[\dX]$/.test(isbn) && isValidIsbn(isbn)) {
+    const body = `978${isbn.slice(0, 9)}`;
+    const checksum = [...body].reduce(
+      (sum, digit, index) => sum + Number(digit) * (index % 2 === 0 ? 1 : 3),
+      0,
+    );
+    isbn = `${body}${(10 - (checksum % 10)) % 10}`;
+  }
+  if (!/^\d{0,13}$/.test(isbn)) return '';
+
+  return [
+    isbn.slice(0, 3),
+    isbn.slice(3, 4),
+    isbn.slice(4, 7),
+    isbn.slice(7, 12),
+    isbn.slice(12, 13),
+  ].filter(Boolean).join('-');
+}
+
 export function isValidIsbn(value) {
   const isbn = normalizeIsbn(value);
   if (/^\d{9}[\dX]$/.test(isbn)) {
@@ -57,6 +78,13 @@ export function isValidIsbn(value) {
     0,
   );
   return checksum % 10 === 0;
+}
+
+export function isValidFormattedIsbn13(value) {
+  const match = String(value || '').match(/^(97[89])-(\d{1,5})-(\d{1,7})-(\d{1,6})-(\d)$/);
+  return Boolean(match)
+    && match.slice(1).join('').length === 13
+    && isValidIsbn(match.slice(1).join(''));
 }
 
 function isPlausibleText(value) {

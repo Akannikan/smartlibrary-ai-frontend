@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import api from '../services/api';
-import { isValidIsbn, normalizeIsbn } from '../services/cataloguing';
+import {
+  formatIsbn13,
+  isValidFormattedIsbn13,
+  normalizeIsbn,
+} from '../services/cataloguing';
 
 const emptyForm = {
   title: '',
@@ -41,7 +45,7 @@ export default function AddBookPage() {
     const value = field === 'accession_number'
       ? event.target.value.replace(/\D/g, '').slice(0, 7)
       : field === 'isbn'
-        ? normalizeIsbn(event.target.value).slice(0, 13)
+        ? formatIsbn13(normalizeIsbn(event.target.value).slice(0, 13))
       : event.target.value;
     setForm((current) => ({ ...current, [field]: value }));
     if (field === 'title' && existingBookId) setExistingBookId(null);
@@ -60,7 +64,7 @@ export default function AddBookPage() {
       publication_place: book.publication_place || '',
       publication_year: book.publication_year || '',
       edition: book.edition || '',
-      isbn: isValidIsbn(book.isbn) ? normalizeIsbn(book.isbn) : '',
+      isbn: formatIsbn13(book.isbn),
       pages: String(pageCount),
       language: book.language || '',
       physical_description: physicalDescription,
@@ -99,7 +103,7 @@ export default function AddBookPage() {
       publication_place: book.publication_place || '',
       publication_year: book.publication_year || '',
       edition: book.edition || '',
-      isbn: isValidIsbn(book.isbn) ? normalizeIsbn(book.isbn) : '',
+      isbn: formatIsbn13(book.isbn),
       pages: String(book.pages || book.physical_description?.match(/\b(\d{1,5})\s*(?:pages?|pp\.?)\b/i)?.[1] || ''),
       language: book.language || '',
       physical_description: book.physical_description || '',
@@ -207,8 +211,8 @@ export default function AddBookPage() {
       setError('Accession number must be exactly 7 digits.');
       return;
     }
-    if (form.isbn && !isValidIsbn(form.isbn)) {
-      setError('Enter a valid ISBN-10 or ISBN-13 with a correct check digit.');
+    if (form.isbn && !isValidFormattedIsbn13(form.isbn)) {
+      setError('Enter a valid ISBN-13 in 978-0-306-40615-7 format with a correct check digit.');
       return;
     }
     setLoading(true);
@@ -218,6 +222,7 @@ export default function AddBookPage() {
     try {
       const payload = {
         ...form,
+        isbn: normalizeIsbn(form.isbn),
         subjects: form.subjects ? form.subjects.split(',').map((item) => item.trim()).filter(Boolean) : [],
       };
       if (existingBookId) {
@@ -360,8 +365,8 @@ export default function AddBookPage() {
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>ISBN</span>
-              <input inputMode="text" maxLength={13} pattern="(?:[0-9]{13}|[0-9]{9}[0-9X])" title="Enter a valid 10-character or 13-digit ISBN without separators." value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="9780306406157 or 0306406152" />
-              <span className="block text-xs font-normal text-slate-500">Automatically filled from a catalogue match when available; valid ISBN-10 and ISBN-13 formats accepted.</span>
+              <input inputMode="numeric" maxLength={17} pattern="97[89]-[0-9]{1,5}-[0-9]{1,7}-[0-9]{1,6}-[0-9]" title="Enter a valid ISBN-13 with four hyphens, for example 978-0-306-40615-7." value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="978-0-306-40615-7" />
+              <span className="block text-xs font-normal text-slate-500">Automatically filled when available. Use four hyphens; the 13 digits and check digit are validated.</span>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Pages</span>

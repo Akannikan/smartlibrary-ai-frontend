@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import { formatIsbn13 } from '../services/cataloguing';
 
 export default function CataloguePage() {
   const [books, setBooks] = useState([]);
@@ -68,7 +69,7 @@ export default function CataloguePage() {
                 <tr key={book.id} className="border-t border-stone-200">
                   <td className="px-4 py-3 font-medium text-slate-800">{book.title}</td>
                   <td className="px-4 py-3">{book.author || '-'}</td>
-                  <td className="px-4 py-3">{book.isbn || '-'}</td>
+                  <td className="px-4 py-3">{formatIsbn13(book.isbn) || book.isbn || '-'}</td>
                   <td className="px-4 py-3">{book.ddc_number || '-'}</td>
                   <td className="px-4 py-3">{book.call_number || '-'}</td>
                   <td className="px-4 py-3">
