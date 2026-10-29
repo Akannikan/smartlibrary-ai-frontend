@@ -37,6 +37,28 @@ function cleanValue(value) {
     .trim();
 }
 
+export function normalizeIsbn(value) {
+  return String(value || '').replace(/[^0-9Xx]/g, '').toUpperCase();
+}
+
+export function isValidIsbn(value) {
+  const isbn = normalizeIsbn(value);
+  if (/^\d{9}[\dX]$/.test(isbn)) {
+    const checksum = [...isbn].reduce(
+      (sum, digit, index) => sum + (digit === 'X' ? 10 : Number(digit)) * (10 - index),
+      0,
+    );
+    return checksum % 11 === 0;
+  }
+  if (!/^97[89]\d{10}$/.test(isbn)) return false;
+
+  const checksum = [...isbn].reduce(
+    (sum, digit, index) => sum + Number(digit) * (index % 2 === 0 ? 1 : 3),
+    0,
+  );
+  return checksum % 10 === 0;
+}
+
 function isPlausibleText(value) {
   if (/^\d{1,4}$/.test(value.trim())) return true;
   const words = value.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
@@ -97,21 +119,8 @@ function extractIsbn(text) {
   ];
 
   for (const candidate of candidates) {
-    const normalized = candidate.replace(/[^0-9Xx]/g, '').toUpperCase();
-    if (normalized.length === 10) {
-      const checksum = [...normalized].reduce(
-        (sum, digit, index) => sum + (digit === 'X' ? 10 : Number(digit)) * (10 - index),
-        0,
-      );
-      if (checksum % 11 === 0) return normalized;
-    }
-    if (normalized.length === 13) {
-      const checksum = [...normalized].reduce(
-        (sum, digit, index) => sum + Number(digit) * (index % 2 === 0 ? 1 : 3),
-        0,
-      );
-      if (checksum % 10 === 0) return normalized;
-    }
+    const normalized = normalizeIsbn(candidate);
+    if (isValidIsbn(normalized)) return normalized;
   }
   return '';
 }
@@ -185,7 +194,7 @@ export function extractMetadataFromText(rawText = '') {
   values.isbn = extractIsbn(text) || (values.isbn ? extractIsbn(values.isbn) : '');
   values.publication_year = values.publication_year?.match(/\b(?:18|19|20|21)\d{2}\b/)?.[0] || extractYear(text);
   values.pages = values.pages?.match(/\d{1,5}/)?.[0] || extractPages(text);
-  values.physical_description ||= lines.find((line) => /\b(illustrations|maps|volume|pp\.|diagrams)\b/i.test(line)) || '';
+  values.physical_description ||= lines.find((line) => /\b(illustrations|maps|volume|pp\.|diagrams|hardcover|hard cover|paperback|paper cover|\d+\s*cm)\b/i.test(line)) || '';
   values.subjects = values.subjects
     ? values.subjects.split(/[,;]|\s+\|\s+/).map(cleanValue).filter(Boolean)
     : lines.filter((line) => /^(?:subject|keywords?)\s*[:\-]/i.test(line))

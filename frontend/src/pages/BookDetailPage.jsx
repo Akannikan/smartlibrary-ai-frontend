@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../services/api';
+import { isValidIsbn, normalizeIsbn } from '../services/cataloguing';
 
 const initialForm = {
   title: '',
+  subtitle: '',
   author: '',
   publisher: '',
+  publication_place: '',
   publication_year: '',
   edition: '',
   isbn: '',
+  pages: '',
+  language: '',
+  physical_description: '',
   ddc_number: '',
   call_number: '',
   notes: '',
@@ -20,6 +26,7 @@ export default function BookDetailPage() {
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     api.getBook(id).then((result) => {
@@ -27,11 +34,16 @@ export default function BookDetailPage() {
       setBook(data);
       setForm({
         title: data.title || '',
+        subtitle: data.subtitle || '',
         author: data.author || '',
         publisher: data.publisher || '',
+        publication_place: data.publication_place || '',
         publication_year: data.publication_year || '',
         edition: data.edition || '',
-        isbn: data.isbn || '',
+        isbn: normalizeIsbn(data.isbn),
+        pages: data.pages || '',
+        language: data.language || '',
+        physical_description: data.physical_description || '',
         ddc_number: data.ddc_number || '',
         call_number: data.call_number || '',
         notes: data.notes || '',
@@ -40,17 +52,25 @@ export default function BookDetailPage() {
   }, [id]);
 
   const updateField = (field) => (event) => {
-    setForm((current) => ({ ...current, [field]: event.target.value }));
+    const value = field === 'isbn'
+      ? normalizeIsbn(event.target.value).slice(0, 13)
+      : event.target.value;
+    setForm((current) => ({ ...current, [field]: value }));
   };
 
   const saveChanges = async () => {
+    if (form.isbn && !isValidIsbn(form.isbn)) {
+      setError('Enter a valid ISBN-10 or ISBN-13 with a correct check digit.');
+      return;
+    }
     setSaving(true);
+    setError('');
     try {
       const result = await api.updateBook(id, form);
       setMessage(result.message || 'Record updated successfully.');
       setBook(result.data || book);
     } catch (error) {
-      setMessage(error.message);
+      setError(error.message);
     } finally {
       setSaving(false);
     }
@@ -63,18 +83,24 @@ export default function BookDetailPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Book Details</h1>
+        <h1 className="text-3xl font-bold text-slate-900">Book details</h1>
+        <p className="mt-1 text-xl font-semibold text-slate-800">{form.title || 'Untitled book'}</p>
         <p className="text-sm text-slate-600">Review the title record and update the metadata as needed.</p>
       </div>
 
       {message ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</div> : null}
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</div> : null}
 
       <div className="grid gap-6 lg:grid-cols-[1.5fr_0.9fr]">
         <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>Title</span>
+              <span>Book title</span>
               <input value={form.title} onChange={updateField('title')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              <span>Subtitle</span>
+              <input value={form.subtitle} onChange={updateField('subtitle')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Author</span>
@@ -85,7 +111,11 @@ export default function BookDetailPage() {
               <input value={form.publisher} onChange={updateField('publisher')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>Publication Year</span>
+              <span>Publication place</span>
+              <input value={form.publication_place} onChange={updateField('publication_place')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              <span>Publication year</span>
               <input value={form.publication_year} onChange={updateField('publication_year')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
@@ -94,14 +124,26 @@ export default function BookDetailPage() {
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>ISBN</span>
-              <input value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input inputMode="text" maxLength={13} pattern="(?:[0-9]{13}|[0-9]{9}[0-9X])" title="Enter a valid 10-character or 13-digit ISBN without separators." value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="9780306406157 or 0306406152" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>DDC Number</span>
+              <span>Pages</span>
+              <input value={form.pages} onChange={updateField('pages')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              <span>Language</span>
+              <input value={form.language} onChange={updateField('language')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700 md:col-span-2">
+              <span>Physical description</span>
+              <textarea value={form.physical_description} onChange={updateField('physical_description')} rows="3" className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              <span>DDC number</span>
               <input value={form.ddc_number} onChange={updateField('ddc_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
-              <span>Call Number</span>
+              <span>Call number</span>
               <input value={form.call_number} onChange={updateField('call_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700 md:col-span-2">
@@ -111,7 +153,7 @@ export default function BookDetailPage() {
           </div>
           <div className="mt-5 flex justify-end">
             <button onClick={saveChanges} className="rounded-lg bg-brand-500 px-4 py-2 font-medium text-white hover:bg-brand-700" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? 'Saving...' : 'Save changes'}
             </button>
           </div>
         </div>

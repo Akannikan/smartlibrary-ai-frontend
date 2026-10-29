@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractMetadataFromText } from './cataloguing.js';
+import { extractMetadataFromText, isValidIsbn, normalizeIsbn } from './cataloguing.js';
+
+test('normalizes and validates ISBN-10 and ISBN-13 values', () => {
+  assert.equal(normalizeIsbn('978-0-306-40615-7'), '9780306406157');
+  assert.equal(isValidIsbn('978-0-306-40615-7'), true);
+  assert.equal(isValidIsbn('0-306-40615-2'), true);
+  assert.equal(isValidIsbn('978-0-306-40615-8'), false);
+  assert.equal(isValidIsbn('1234567890123'), false);
+  assert.equal(isValidIsbn('978030640615X'), false);
+});
 
 test('extracts labeled metadata from multiline OCR without consuming following fields', () => {
   const metadata = extractMetadataFromText(`Title: The Quiet Library
@@ -62,6 +71,13 @@ By Jane Ann Doe
   assert.equal(metadata.publication_year, '2020');
   assert.equal(metadata.isbn, '9780306406157');
   assert.equal(metadata.pages, '312');
+});
+
+test('recognizes book binding and additional physical details', () => {
+  const metadata = extractMetadataFromText(`Title: A Book
+Paperback, xii, 245 pages : illustrations, maps ; 23 cm`);
+
+  assert.equal(metadata.physical_description, 'Paperback, xii, 245 pages : illustrations, maps ; 23 cm');
 });
 
 test('returns empty strings for unsupported copy details instead of guessing them', () => {

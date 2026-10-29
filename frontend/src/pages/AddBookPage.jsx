@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../services/api';
+import { isValidIsbn, normalizeIsbn } from '../services/cataloguing';
 
 const emptyForm = {
   title: '',
@@ -39,6 +40,8 @@ export default function AddBookPage() {
   const updateField = (field) => (event) => {
     const value = field === 'accession_number'
       ? event.target.value.replace(/\D/g, '').slice(0, 7)
+      : field === 'isbn'
+        ? normalizeIsbn(event.target.value).slice(0, 13)
       : event.target.value;
     setForm((current) => ({ ...current, [field]: value }));
     if (field === 'title' && existingBookId) setExistingBookId(null);
@@ -46,18 +49,21 @@ export default function AddBookPage() {
 
   const applyBookMatch = (book, summaryMessage = '') => {
     setExistingBookId(null);
+    const physicalDescription = book.physical_description || '';
+    const pageCount = book.pages
+      || physicalDescription.match(/\b(\d{1,5})\s*(?:pages?|pp\.?)\b/i)?.[1]
+      || '';
     const detected = {
       title: book.title,
       author: book.author,
-      subtitle: book.subtitle || '',
       publisher: book.publisher || '',
       publication_place: book.publication_place || '',
       publication_year: book.publication_year || '',
       edition: book.edition || '',
-      isbn: book.isbn || '',
-      pages: book.pages || '',
+      isbn: isValidIsbn(book.isbn) ? normalizeIsbn(book.isbn) : '',
+      pages: String(pageCount),
       language: book.language || '',
-      physical_description: book.physical_description || '',
+      physical_description: physicalDescription,
       subjects: book.subjects?.join(', ') || '',
       ddc_number: book.ddc_number || '',
       call_number: book.call_number || '',
@@ -87,14 +93,14 @@ export default function AddBookPage() {
     setForm((current) => ({
       ...current,
       title: book.title || '',
-      subtitle: book.subtitle || '',
+      subtitle: '',
       author: book.author || '',
       publisher: book.publisher || '',
       publication_place: book.publication_place || '',
       publication_year: book.publication_year || '',
       edition: book.edition || '',
-      isbn: book.isbn || '',
-      pages: book.pages || '',
+      isbn: isValidIsbn(book.isbn) ? normalizeIsbn(book.isbn) : '',
+      pages: String(book.pages || book.physical_description?.match(/\b(\d{1,5})\s*(?:pages?|pp\.?)\b/i)?.[1] || ''),
       language: book.language || '',
       physical_description: book.physical_description || '',
       subjects: Array.isArray(book.subjects) ? book.subjects.join(', ') : '',
@@ -119,7 +125,10 @@ export default function AddBookPage() {
         author: candidate.author || '',
         isbn: candidate.isbn || '',
       });
-      applyBookMatch({ ...candidate, notes: details.match?.notes || candidate.notes }, details.summaryMessage);
+      applyBookMatch(
+        { ...(details.match || candidate), notes: details.match?.notes || candidate.notes },
+        details.summaryMessage,
+      );
     } catch {
       applyBookMatch(candidate, 'The fuller description could not be loaded. Review the source record and enter notes manually.');
     } finally {
@@ -198,6 +207,10 @@ export default function AddBookPage() {
       setError('Accession number must be exactly 7 digits.');
       return;
     }
+    if (form.isbn && !isValidIsbn(form.isbn)) {
+      setError('Enter a valid ISBN-10 or ISBN-13 with a correct check digit.');
+      return;
+    }
     setLoading(true);
     setError('');
     setSuccess('');
@@ -230,7 +243,7 @@ export default function AddBookPage() {
       <div className="animate-fade-up overflow-hidden rounded-3xl bg-gradient-to-br from-brand-900 via-brand-700 to-brand-500 px-6 py-7 text-white shadow-lg shadow-brand-900/10 sm:px-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-100">Smart cataloguing</p>
+            <p className="text-xs font-semibold tracking-[0.08em] text-emerald-100">Smart cataloguing</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Add a book</h1>
             <p className="mt-2 text-sm leading-6 text-emerald-50 sm:text-base">Search online by title, author, or ISBN, then review and edit the edition details before saving.</p>
           </div>
@@ -316,14 +329,18 @@ export default function AddBookPage() {
             <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">Editable fields</span>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <p className="md:col-span-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Bibliographic details</p>
+            <p className="md:col-span-2 text-sm font-semibold text-slate-500">Bibliographic details</p>
+            <label className="space-y-2 text-sm font-medium text-slate-700 md:col-span-2">
+              <span>Book title</span>
+              <input value={form.title} onChange={updateField('title')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Filled from the selected catalogue record" />
+            </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Author</span>
               <input value={form.author} onChange={updateField('author')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Subtitle</span>
-              <input value={form.subtitle} onChange={updateField('subtitle')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input value={form.subtitle} onChange={updateField('subtitle')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Optional" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Publisher</span>
@@ -331,31 +348,33 @@ export default function AddBookPage() {
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Publication place</span>
-              <input value={form.publication_place} onChange={updateField('publication_place')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input value={form.publication_place} onChange={updateField('publication_place')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Filled from catalogue when available (optional)" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Publication year</span>
-              <input value={form.publication_year} onChange={updateField('publication_year')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input value={form.publication_year} onChange={updateField('publication_year')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Filled from catalogue when available (optional)" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Edition</span>
-              <input value={form.edition} onChange={updateField('edition')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input value={form.edition} onChange={updateField('edition')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Filled from catalogue when available (optional)" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>ISBN</span>
-              <input value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input inputMode="text" maxLength={13} pattern="(?:[0-9]{13}|[0-9]{9}[0-9X])" title="Enter a valid 10-character or 13-digit ISBN without separators." value={form.isbn} onChange={updateField('isbn')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="9780306406157 or 0306406152" />
+              <span className="block text-xs font-normal text-slate-500">Automatically filled from a catalogue match when available; valid ISBN-10 and ISBN-13 formats accepted.</span>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Pages</span>
-              <input value={form.pages} onChange={updateField('pages')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <input inputMode="numeric" value={form.pages} onChange={updateField('pages')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Filled from catalogue when available" />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Language</span>
               <input value={form.language} onChange={updateField('language')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
-            <label className="space-y-2 text-sm font-medium text-slate-700">
+            <label className="space-y-2 text-sm font-medium text-slate-700 md:col-span-2">
               <span>Physical description</span>
-              <input value={form.physical_description} onChange={updateField('physical_description')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
+              <textarea value={form.physical_description} onChange={updateField('physical_description')} rows="3" className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="Include hardcover or paperback, page count, illustrations, maps, dimensions, and other physical details." />
+              <span className="block text-xs font-normal text-slate-500">Include the binding (hardcover or paperback) and any other known physical details.</span>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Subjects</span>
@@ -369,7 +388,7 @@ export default function AddBookPage() {
               <span>Class / call number (suggested)</span>
               <input value={form.call_number} onChange={updateField('call_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" />
             </label>
-            <p className="md:col-span-2 mt-2 border-t border-slate-100 pt-5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Physical copy details</p>
+            <p className="md:col-span-2 mt-2 border-t border-slate-100 pt-5 text-sm font-semibold text-slate-500">Physical copy details</p>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               <span>Accession number</span>
               <input inputMode="numeric" maxLength={7} value={form.accession_number} onChange={updateField('accession_number')} className="w-full rounded-lg border border-stone-300 px-3 py-2" placeholder="7 digits" />
